@@ -1,11 +1,18 @@
 /**
  * Core call processing pipeline.
  * Replicates the n8n workflow:
- *   GHL webhook → wait → fetch conversation → download recording → Whisper → GPT-4o → store
+ *   GHL webhook → wait → fetch conversation → download recording → transcribe → Claude QA → store
+ *
+ * Transcription strategy:
+ *   1. Try GHL's built-in transcription first (free)
+ *   2. Fall back to OpenAI Whisper if available
+ *   3. Fail if neither works
+ *
+ * QA analysis: Claude (Anthropic) instead of GPT-4o
  */
 
 import { GHLClient } from "@/lib/ghl/client";
-import { transcribeAudio, analyzeCallQA } from "@/lib/openai/client";
+import { analyzeCallQA } from "@/lib/anthropic/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 interface ProcessCallPayload {
@@ -15,6 +22,14 @@ interface ProcessCallPayload {
   call_duration: string | number;
   business_name: string;
   closer: string;
+  /** Pre-discovered message ID (from bulk sync) — skips conversation search */
+  message_id?: string;
+  /** Pre-discovered conversation ID (from bulk sync) */
+  conversation_id?: string;
+  /** Call direction */
+  direction?: string;
+  /** Call date from GHL */
+  call_date?: string;
 }
 
 interface ProcessCallOptions {
@@ -42,6 +57,36 @@ async function updateJobStatus(
 }
 
 /**
+ * Get transcript for a call message.
+ * Strategy: GHL built-in transcription → OpenAI Whisper fallback → error
+ */
+async function getTranscript(
+  ghl: GHLClient,
+  messageId: string
+): Promise<string> {
+  // 1. Try GHL built-in transcription (free)
+  console.log(`[pipeline] Trying GHL transcription for message ${messageId}...`);
+  const ghlTranscript = await ghl.getTranscription(messageId);
+  if (ghlTranscript && ghlTranscript.trim().length > 10) {
+    console.log(`[pipeline] GHL transcription found (${ghlTranscript.length} chars)`);
+    return ghlTranscript;
+  }
+
+  // 2. Fall back to OpenAI Whisper if API key is set
+  if (process.env.OPENAI_API_KEY) {
+    console.log(`[pipeline] GHL transcription empty, falling back to Whisper...`);
+    const { transcribeAudio } = await import("@/lib/openai/client");
+    const audioBuffer = await ghl.downloadRecording(messageId);
+    return transcribeAudio(audioBuffer);
+  }
+
+  // 3. No transcription available — try downloading and using a basic approach
+  throw new Error(
+    "No transcription available: GHL transcription empty and OPENAI_API_KEY not set"
+  );
+}
+
+/**
  * Process a single call through the full pipeline.
  * This function is called by the worker API route.
  */
@@ -57,34 +102,54 @@ export async function processCall(
     // Mark job as processing
     await updateJobStatus(jobId, "processing", { started_at: new Date().toISOString() });
 
-    // Step 1: Wait for recording to be ready in GHL (reduced from 15s to 10s)
-    await sleep(10_000);
+    let messageId = payload.message_id;
+    let conversationId = payload.conversation_id;
 
-    // Step 2: Find the completed call message
-    const callResult = await ghl.findCompletedCallMessage(payload.contact_id);
-    if (!callResult) {
-      throw new Error(`No completed call found for contact ${payload.contact_id}`);
+    // If we don't have pre-discovered IDs, find them via conversation search
+    if (!messageId || !conversationId) {
+      // Wait for recording to be ready in GHL (only for webhook-triggered calls)
+      await sleep(10_000);
+
+      const callResult = await ghl.findCompletedCallMessage(payload.contact_id);
+      if (!callResult) {
+        throw new Error(`No completed call found for contact ${payload.contact_id}`);
+      }
+      messageId = callResult.message.id;
+      conversationId = callResult.conversationId;
     }
 
-    const { message: callMsg, conversationId } = callResult;
+    // Check for duplicate by message_id OR conversation_id
+    const { data: existingByMsg } = await supabase
+      .from("call_recordings")
+      .select("id")
+      .eq("ghl_message_id", messageId)
+      .maybeSingle();
 
-    // Check for duplicate
-    const { data: existing } = await supabase
+    if (existingByMsg) {
+      await updateJobStatus(jobId, "completed", {
+        completed_at: new Date().toISOString(),
+        result: { skipped: true, reason: "duplicate_message", call_recording_id: existingByMsg.id },
+        call_recording_id: existingByMsg.id,
+      });
+      return;
+    }
+
+    const { data: existingByConv } = await supabase
       .from("call_recordings")
       .select("id")
       .eq("ghl_conversation_id", conversationId)
       .maybeSingle();
 
-    if (existing) {
+    if (existingByConv) {
       await updateJobStatus(jobId, "completed", {
         completed_at: new Date().toISOString(),
-        result: { skipped: true, reason: "duplicate", call_recording_id: existing.id },
-        call_recording_id: existing.id,
+        result: { skipped: true, reason: "duplicate_conversation", call_recording_id: existingByConv.id },
+        call_recording_id: existingByConv.id,
       });
       return;
     }
 
-    // Step 3: Insert preliminary call_recording with pending status
+    // Insert preliminary call_recording with pending status
     const { data: recording, error: insertError } = await supabase
       .from("call_recordings")
       .insert({
@@ -92,12 +157,12 @@ export async function processCall(
         closer_id: closerId,
         recording_url: "",
         duration_seconds: parseInt(String(payload.call_duration)) || 0,
-        call_date: new Date().toISOString(),
+        call_date: payload.call_date || new Date().toISOString(),
         contact_name: payload.contact_name,
         contact_phone: payload.contact_phone,
         business_name: payload.business_name || null,
         ghl_conversation_id: conversationId,
-        ghl_message_id: callMsg.id,
+        ghl_message_id: messageId,
         processing_status: "transcribing",
         is_critical: false,
       })
@@ -112,18 +177,15 @@ export async function processCall(
       .update({ call_recording_id: recording.id })
       .eq("id", jobId);
 
-    // Step 4: Download recording
-    const audioBuffer = await ghl.downloadRecording(callMsg.id);
-
-    // Step 5: Transcribe with Whisper
+    // Transcribe: GHL built-in → Whisper fallback
     await supabase
       .from("call_recordings")
       .update({ processing_status: "transcribing" })
       .eq("id", recording.id);
 
-    const transcript = await transcribeAudio(audioBuffer);
+    const transcript = await getTranscript(ghl, messageId);
 
-    // Step 6: QA Analysis with GPT-4o
+    // QA Analysis with Claude
     await supabase
       .from("call_recordings")
       .update({ processing_status: "analyzing", transcript })
@@ -131,13 +193,13 @@ export async function processCall(
 
     const qaResult = await analyzeCallQA(transcript);
 
-    // Step 7: Compute scores for DB
+    // Compute scores for DB
     const evaluationScore = Math.round(
       (qaResult.good_count * 100 + qaResult.partial_count * 50) /
         (qaResult.good_count + qaResult.partial_count + qaResult.missed_count || 1)
     );
 
-    // Sentiment: simple heuristic based on overall score
+    // Sentiment: heuristic based on overall score
     const sentimentMap = { green: 0.7, yellow: 0.3, red: -0.3 };
     const sentimentScore = sentimentMap[qaResult.overall];
 
@@ -149,7 +211,7 @@ export async function processCall(
       .filter((c) => c.score === "missed" || c.score === "partial")
       .map((c) => c.name);
 
-    // Step 8: Update call_recording with final results
+    // Update call_recording with final results
     await supabase
       .from("call_recordings")
       .update({
@@ -167,7 +229,7 @@ export async function processCall(
       })
       .eq("id", recording.id);
 
-    // Step 9: Mark job as completed
+    // Mark job as completed
     await updateJobStatus(jobId, "completed", {
       completed_at: new Date().toISOString(),
       result: {
@@ -188,7 +250,7 @@ export async function processCall(
       error_message: message,
     });
 
-    // Increment attempts via direct update
+    // Increment attempts
     const { data: currentJob } = await supabase
       .from("processing_jobs")
       .select("attempts")

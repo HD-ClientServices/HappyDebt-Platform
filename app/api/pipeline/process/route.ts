@@ -1,6 +1,6 @@
 /**
  * Pipeline Worker — processes pending call analysis jobs.
- * Called internally by the webhook handler or cron.
+ * Called internally by the webhook handler, sync, or cron.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -57,10 +57,28 @@ export async function POST(req: NextRequest) {
       .update({ attempts: (job.attempts || 0) + 1 })
       .eq("id", job.id);
 
-    // Get GHL credentials from payload or env
+    // Get GHL credentials: first from org, then from payload, then from env
     const payload = job.payload as Record<string, string>;
-    const ghlToken = payload.ghl_token || process.env.GHL_API_TOKEN || "";
-    const ghlLocationId = payload.ghl_location_id || process.env.GHL_LOCATION_ID || "";
+    let ghlToken = "";
+    let ghlLocationId = "";
+
+    // Try to get credentials from the org
+    if (job.org_id) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("ghl_api_token, ghl_location_id")
+        .eq("id", job.org_id)
+        .single();
+
+      if (org) {
+        ghlToken = org.ghl_api_token || "";
+        ghlLocationId = org.ghl_location_id || "";
+      }
+    }
+
+    // Fallback to payload or env
+    if (!ghlToken) ghlToken = payload.ghl_token || process.env.GHL_API_TOKEN || "";
+    if (!ghlLocationId) ghlLocationId = payload.ghl_location_id || process.env.GHL_LOCATION_ID || "";
 
     if (!ghlToken || !ghlLocationId) {
       await supabase
@@ -70,7 +88,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing GHL credentials" }, { status: 400 });
     }
 
-    // Run the pipeline
+    // Run the pipeline — pass all fields including pre-discovered IDs
     await processCall(
       {
         contact_id: payload.contact_id,
@@ -79,6 +97,10 @@ export async function POST(req: NextRequest) {
         call_duration: payload.call_duration || "0",
         business_name: payload.business_name || "",
         closer: payload.closer || "N/A",
+        message_id: payload.message_id || undefined,
+        conversation_id: payload.conversation_id || undefined,
+        direction: payload.direction || undefined,
+        call_date: payload.call_date || undefined,
       },
       {
         jobId: job.id,

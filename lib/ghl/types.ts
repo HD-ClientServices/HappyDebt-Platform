@@ -17,6 +17,10 @@ export interface GHLConversation {
   unreadCount: number;
   dateAdded: string;
   dateUpdated: string;
+  fullName?: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
 }
 
 export interface GHLMessage {
@@ -30,6 +34,10 @@ export interface GHLMessage {
   dateAdded: string;
   attachments?: string[];
   meta?: Record<string, unknown>;
+  /** Duration in seconds for TYPE_CALL messages */
+  duration?: number;
+  /** Call status for TYPE_CALL messages */
+  callStatus?: string;
 }
 
 export interface GHLConversationsSearchResponse {
@@ -51,4 +59,54 @@ export interface GHLUser {
   phone: string;
   profilePhoto?: string;
   deleted: boolean;
+}
+
+export interface GHLContact {
+  id: string;
+  locationId: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  companyName?: string;
+  tags?: string[];
+  customFields?: Array<{
+    id: string;
+    value: unknown;
+    fieldKey?: string;
+  }>;
+  dateAdded: string;
+  dateUpdated: string;
+}
+
+export interface GHLContactsResponse {
+  contacts: GHLContact[];
+  meta: {
+    total: number;
+    currentPage: number;
+    nextPage?: number;
+    prevPage?: number;
+    nextPageUrl?: string;
+  };
+}
+
+export interface GHLTranscriptionResponse {
+  transcription?: string;
+  text?: string;
+  status?: string;
+}
+
+/** Represents a discovered call ready for processing */
+export interface DiscoveredCall {
+  messageId: string;
+  conversationId: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string;
+  direction: string;
+  callDate: string;
+  duration: number;
+  /** GHL user who handled the call, if identifiable */
+  assignedUser?: string;
 }

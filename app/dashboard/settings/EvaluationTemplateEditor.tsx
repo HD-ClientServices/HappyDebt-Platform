@@ -32,9 +32,10 @@ export function EvaluationTemplateEditor() {
         .select("*")
         .eq("is_active", true)
         .limit(1)
-        .single();
-      return data;
+        .maybeSingle(); // returns null (not error) when no rows exist
+      return data ?? null;
     },
+    retry: false, // don't retry — null means "no template yet", show defaults
   });
 
   const weightsSum = criteria.reduce((s, c) => s + c.weight, 0);

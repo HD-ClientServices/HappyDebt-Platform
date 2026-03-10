@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,10 +19,17 @@ import {
   XCircle,
   RefreshCw,
   Plug2,
+  AlertTriangle,
 } from "lucide-react";
 
+interface OrgGHLSettings {
+  id: string;
+  ghl_api_token: string | null;
+  ghl_location_id: string | null;
+  migration_pending?: boolean;
+}
+
 export function GHLIntegrationSettings() {
-  const supabase = createClient();
   const queryClient = useQueryClient();
 
   const [token, setToken] = useState("");
@@ -33,26 +39,16 @@ export function GHLIntegrationSettings() {
   >("idle");
   const [testMessage, setTestMessage] = useState("");
 
-  // Fetch current org settings
-  const { data: org, isLoading } = useQuery({
+  // Fetch current org settings via API route (resilient to missing columns)
+  const { data: org, isLoading } = useQuery<OrgGHLSettings | null>({
     queryKey: ["org-ghl-settings"],
     queryFn: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return null;
-      const { data: profile } = await supabase
-        .from("users")
-        .select("org_id")
-        .eq("id", user.id)
-        .single();
-      if (!profile?.org_id) return null;
-      const { data } = await supabase
-        .from("organizations")
-        .select("id, ghl_api_token, ghl_location_id")
-        .eq("id", profile.org_id)
-        .single();
-      return data;
+      const res = await fetch("/api/settings/ghl");
+      if (!res.ok) {
+        if (res.status === 401) return null;
+        return null;
+      }
+      return res.json();
     },
     refetchOnWindowFocus: false,
   });
@@ -64,22 +60,29 @@ export function GHLIntegrationSettings() {
     if (org.ghl_location_id) setLocationId(org.ghl_location_id);
   }
 
-  // Save credentials
+  // Save credentials via API route
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!org) throw new Error("No organization found");
-      const { error } = await supabase
-        .from("organizations")
-        .update({ ghl_api_token: token, ghl_location_id: locationId })
-        .eq("id", org.id);
-      if (error) throw error;
+      const res = await fetch("/api/settings/ghl", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ghl_api_token: token,
+          ghl_location_id: locationId,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Save failed: HTTP ${res.status}`);
+      }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-ghl-settings"] });
     },
   });
 
-  // Test connection
+  // Test connection — fixed: include locationId as query param
   const handleTestConnection = async () => {
     if (!token || !locationId) {
       setTestStatus("error");
@@ -90,7 +93,7 @@ export function GHLIntegrationSettings() {
     setTestMessage("");
     try {
       const res = await fetch(
-        "https://services.leadconnectorhq.com/users/",
+        `https://services.leadconnectorhq.com/users/?locationId=${encodeURIComponent(locationId)}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -102,10 +105,15 @@ export function GHLIntegrationSettings() {
         const data = await res.json();
         const count = data.users?.length ?? 0;
         setTestStatus("success");
-        setTestMessage(`Connected! Found ${count} user(s) in your GHL account.`);
+        setTestMessage(
+          `Connected! Found ${count} user(s) in your GHL location.`
+        );
       } else {
+        const body = await res.json().catch(() => ({}));
         setTestStatus("error");
-        setTestMessage(`Connection failed: HTTP ${res.status}`);
+        setTestMessage(
+          `Connection failed: HTTP ${res.status}${body.message ? ` — ${body.message}` : ""}`
+        );
       }
     } catch (err) {
       setTestStatus("error");
@@ -138,6 +146,7 @@ export function GHLIntegrationSettings() {
   }
 
   const isConnected = !!(org?.ghl_api_token && org?.ghl_location_id);
+  const migrationPending = org?.migration_pending === true;
 
   return (
     <Card className="bg-zinc-900/80 border-zinc-800">
@@ -167,6 +176,25 @@ export function GHLIntegrationSettings() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Migration warning */}
+        {migrationPending && (
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-4 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium text-amber-400">
+                Database migration required
+              </p>
+              <p className="text-muted-foreground mt-1">
+                Run{" "}
+                <code className="bg-zinc-800 px-1.5 py-0.5 rounded text-xs">
+                  supabase/migrations/00004_call_pipeline.sql
+                </code>{" "}
+                in your Supabase SQL Editor to enable GHL settings storage.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Credentials */}
         <div className="grid gap-4 max-w-lg">
           <div className="space-y-2">
@@ -232,7 +260,7 @@ export function GHLIntegrationSettings() {
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Sync Closers
+            Sync Calls
           </Button>
         </div>
 
@@ -254,13 +282,27 @@ export function GHLIntegrationSettings() {
               : "Unknown error"}
           </p>
         )}
+        {saveMutation.isSuccess && (
+          <p className="text-sm text-emerald-500">Credentials saved!</p>
+        )}
         {syncMutation.isSuccess && (
-          <p className="text-sm text-emerald-500">
-            Sync complete:{" "}
-            {(syncMutation.data as { closers_synced?: number })?.closers_synced ?? 0}{" "}
-            closer(s) synced.{" "}
-            {(syncMutation.data as { message?: string })?.message ?? ""}
-          </p>
+          <div className="text-sm text-emerald-500 space-y-1">
+            <p>
+              {(syncMutation.data as { message?: string })?.message ?? "Sync complete."}
+            </p>
+            {((syncMutation.data as { closers_synced?: number })?.closers_synced ?? 0) > 0 && (
+              <p className="text-muted-foreground">
+                {(syncMutation.data as { closers_synced?: number })?.closers_synced} new closer(s) synced.
+              </p>
+            )}
+            {((syncMutation.data as { calls_discovered?: number })?.calls_discovered ?? 0) > 0 && (
+              <p className="text-muted-foreground">
+                {(syncMutation.data as { calls_discovered?: number })?.calls_discovered} call(s) found,{" "}
+                {(syncMutation.data as { calls_new?: number })?.calls_new ?? 0} new,{" "}
+                {(syncMutation.data as { jobs_created?: number })?.jobs_created ?? 0} queued for analysis.
+              </p>
+            )}
+          </div>
         )}
         {syncMutation.isError && (
           <p className="text-sm text-red-400">

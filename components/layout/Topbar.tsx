@@ -9,7 +9,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 import { ChevronDown, LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
@@ -62,17 +61,15 @@ export function Topbar({ user }: { user: { email?: string; avatar_url?: string }
       <Breadcrumbs />
       <div className="flex items-center gap-2">
         <DropdownMenu>
-          <DropdownMenuTrigger>
-            <Button variant="ghost" className="flex items-center gap-2">
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={user?.avatar_url} alt="" />
-                <AvatarFallback className="bg-zinc-800 text-xs">
-                  {(user?.email ?? "U").slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <span className="hidden text-sm md:inline">{user?.email}</span>
-              <ChevronDown className="h-4 w-4" />
-            </Button>
+          <DropdownMenuTrigger className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+            <Avatar className="h-8 w-8">
+              <AvatarImage src={user?.avatar_url} alt="" />
+              <AvatarFallback className="bg-zinc-800 text-xs">
+                {(user?.email ?? "U").slice(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <span className="hidden text-sm md:inline">{user?.email}</span>
+            <ChevronDown className="h-4 w-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-zinc-900 border-zinc-800">
             <DropdownMenuItem onClick={handleSignOut} className="text-rose-500">
