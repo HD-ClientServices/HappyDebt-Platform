@@ -17,29 +17,12 @@ import {
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
 
-  const handleMagicLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    const { error: err } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/dashboard` },
-    });
-    setLoading(false);
-    if (err) {
-      setError(err.message);
-      return;
-    }
-    setMagicLinkSent(true);
-  };
-
-  const handlePassword = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
@@ -62,58 +45,43 @@ export default function LoginPage() {
         <CardTitle className="font-heading text-xl">
           HappyDebt Client Portal
         </CardTitle>
-        <CardDescription>
-          Sign in with magic link or password
-        </CardDescription>
+        <CardDescription>Sign in to your account</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {magicLinkSent ? (
-          <p className="text-sm text-emerald-500">
-            Check your email for the magic link.
-          </p>
-        ) : (
-          <>
-            <form onSubmit={handleMagicLink} className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="bg-zinc-800 border-zinc-700"
-              />
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Sending…" : "Send magic link"}
-              </Button>
-            </form>
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-zinc-700" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase text-muted-foreground">
-                <span className="bg-zinc-900 px-2">Or</span>
-              </div>
-            </div>
-            <form onSubmit={handlePassword} className="space-y-2">
-              <Label htmlFor="pw">Password</Label>
-              <Input
-                id="pw"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="bg-zinc-800 border-zinc-700"
-              />
-              <Button type="submit" variant="secondary" className="w-full" disabled={loading}>
-                Sign in with password
-              </Button>
-            </form>
-          </>
-        )}
-        {error && (
-          <p className="text-sm text-rose-500">{error}</p>
-        )}
+      <CardContent>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="bg-zinc-800 border-zinc-700"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="bg-zinc-800 border-zinc-700"
+            />
+          </div>
+          {error && <p className="text-sm text-rose-500">{error}</p>}
+          <Button
+            type="submit"
+            className="w-full bg-emerald-600 hover:bg-emerald-700"
+            disabled={loading}
+          >
+            {loading ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
       </CardContent>
     </Card>
   );
