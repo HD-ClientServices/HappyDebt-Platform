@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HappyDebt Client Portal
 
-## Getting Started
+Next.js 14 App Router + Supabase + Tailwind + shadcn/ui.
 
-First, run the development server:
+## Setup
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. Copy `env.example` to `.env.local` and set:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Supabase: run migrations in `supabase/migrations/` (e.g. via Supabase Dashboard SQL or `supabase db push`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Install and run:
+   ```bash
+   npm install
+   npm run dev
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. **Global CSS**: Add `import "./global.css"` (or `import "@/styles/global.css"`) at the top of `app/layout.tsx` to enable Tailwind. CSS lives in `app/global.css` or `styles/global.css`. If build fails with a Webpack/Sucrase CSS error, try `rm -rf .next node_modules && npm install` or use `npm run dev` for local development.
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+- `npm run dev` — development server
+- `npm run build` — production build
+- `npm run start` — start production server
+- `npm run lint` — ESLint
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `app/` — App Router pages and layouts
+- `components/` — UI (shadcn) and shared (layout, drill-down, audio)
+- `lib/` — Supabase clients, utils
+- `store/` — Zustand (UI state)
+- `types/` — Database types
+- `supabase/migrations/` — SQL schema and RLS
