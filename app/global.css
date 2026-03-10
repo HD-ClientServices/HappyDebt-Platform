@@ -9,7 +9,8 @@
   --border: #27272a;
   --muted: #27272a;
   --muted-foreground: #a1a1aa;
-  --primary: #7c3aed; /* HappyDebt Purple adapted for dark mode */
+  --primary: #7c3aed;
+  /* HappyDebt Purple adapted for dark mode */
   --primary-foreground: #ffffff;
 }
 

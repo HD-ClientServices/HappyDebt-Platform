@@ -3,6 +3,8 @@ import { CloserRankingPanel } from "./CloserRankingPanel";
 import { SentimentChart } from "./SentimentChart";
 import { EvaluationScoreChart } from "./EvaluationScoreChart";
 import { CriticalCallsPanel } from "./CriticalCallsPanel";
+import { ProcessingStatusBanner } from "./ProcessingStatusBanner";
+import { QACriteriaChart } from "./QACriteriaChart";
 
 export default function VoCPage() {
   return (
@@ -10,6 +12,7 @@ export default function VoCPage() {
       <h1 className="font-heading text-2xl font-semibold">
         Voice of the Customer
       </h1>
+      <ProcessingStatusBanner />
       <SuggestionsBanner />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
@@ -18,6 +21,7 @@ export default function VoCPage() {
         <div className="lg:col-span-2 space-y-6">
           <SentimentChart />
           <EvaluationScoreChart />
+          <QACriteriaChart />
         </div>
       </div>
       <CriticalCallsPanel />

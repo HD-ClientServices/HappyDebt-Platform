@@ -19,6 +19,9 @@ export type ActionableStatus =
   | "done"
   | "dismissed";
 
+export type ProcessingJobStatus = "pending" | "processing" | "completed" | "failed";
+export type ProcessingStatus = "pending" | "transcribing" | "analyzing" | "completed" | "failed";
+
 export interface Organization {
   id: string;
   name: string;
@@ -27,6 +30,8 @@ export interface Organization {
   plan: OrgPlan;
   trial_ends_at: string | null;
   stripe_customer_id: string | null;
+  ghl_api_token: string | null;
+  ghl_location_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -92,7 +97,28 @@ export interface CallRecording {
   improvement_areas: string[] | null;
   is_critical: boolean;
   critical_action_plan: string | null;
+  processing_status: ProcessingStatus;
+  ghl_message_id: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  business_name: string | null;
   created_at: string;
+}
+
+export interface ProcessingJob {
+  id: string;
+  org_id: string;
+  status: ProcessingJobStatus;
+  job_type: "call_analysis" | "manual_sync";
+  payload: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  call_recording_id: string | null;
+  attempts: number;
+  max_attempts: number;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
 }
 
 export interface EvaluationTemplate {
