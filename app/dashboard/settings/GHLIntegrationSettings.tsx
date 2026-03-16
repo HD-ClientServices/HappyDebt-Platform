@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,13 +20,21 @@ import {
   RefreshCw,
   Plug2,
   AlertTriangle,
+  ArrowDownUp,
 } from "lucide-react";
 
 interface OrgGHLSettings {
   id: string;
   ghl_api_token: string | null;
   ghl_location_id: string | null;
+  ghl_opening_pipeline_id: string | null;
   migration_pending?: boolean;
+}
+
+interface GHLPipeline {
+  id: string;
+  name: string;
+  stages: Array<{ id: string; name: string }>;
 }
 
 export function GHLIntegrationSettings() {
@@ -34,12 +42,13 @@ export function GHLIntegrationSettings() {
 
   const [token, setToken] = useState("");
   const [locationId, setLocationId] = useState("");
+  const [openingPipelineId, setOpeningPipelineId] = useState("");
   const [testStatus, setTestStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
   const [testMessage, setTestMessage] = useState("");
 
-  // Fetch current org settings via API route (resilient to missing columns)
+  // Fetch current org settings via API route
   const { data: org, isLoading } = useQuery<OrgGHLSettings | null>({
     queryKey: ["org-ghl-settings"],
     queryFn: async () => {
@@ -60,6 +69,33 @@ export function GHLIntegrationSettings() {
     if (org.ghl_location_id) setLocationId(org.ghl_location_id);
   }
 
+  // Initialize pipeline ID separately (can be null initially)
+  const [pipelineInitialized, setPipelineInitialized] = useState(false);
+  useEffect(() => {
+    if (org && !pipelineInitialized) {
+      if (org.ghl_opening_pipeline_id) setOpeningPipelineId(org.ghl_opening_pipeline_id);
+      setPipelineInitialized(true);
+    }
+  }, [org, pipelineInitialized]);
+
+  // Fetch available pipelines when connected
+  const isConnected = !!(org?.ghl_api_token && org?.ghl_location_id);
+
+  const { data: pipelinesData, isLoading: pipelinesLoading } = useQuery<{
+    pipelines: GHLPipeline[];
+  }>({
+    queryKey: ["ghl-pipelines"],
+    queryFn: async () => {
+      const res = await fetch("/api/pipeline/pipelines");
+      if (!res.ok) return { pipelines: [] };
+      return res.json();
+    },
+    enabled: isConnected,
+    refetchOnWindowFocus: false,
+  });
+
+  const pipelines = pipelinesData?.pipelines ?? [];
+
   // Save credentials via API route
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -69,6 +105,7 @@ export function GHLIntegrationSettings() {
         body: JSON.stringify({
           ghl_api_token: token,
           ghl_location_id: locationId,
+          ghl_opening_pipeline_id: openingPipelineId || null,
         }),
       });
       if (!res.ok) {
@@ -79,10 +116,11 @@ export function GHLIntegrationSettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-ghl-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["ghl-pipelines"] });
     },
   });
 
-  // Test connection — fixed: include locationId as query param
+  // Test connection
   const handleTestConnection = async () => {
     if (!token || !locationId) {
       setTestStatus("error");
@@ -135,6 +173,26 @@ export function GHLIntegrationSettings() {
     },
   });
 
+  // Sync opportunities
+  const syncOppsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/pipeline/sync-opportunities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pipelineId: openingPipelineId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Sync failed: ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["overview-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["live-transfers"] });
+    },
+  });
+
   if (isLoading) {
     return (
       <Card className="bg-zinc-900/80 border-zinc-800">
@@ -145,7 +203,6 @@ export function GHLIntegrationSettings() {
     );
   }
 
-  const isConnected = !!(org?.ghl_api_token && org?.ghl_location_id);
   const migrationPending = org?.migration_pending === true;
 
   return (
@@ -218,6 +275,41 @@ export function GHLIntegrationSettings() {
               className="bg-zinc-800 border-zinc-700 font-mono text-sm"
             />
           </div>
+
+          {/* Pipeline picker */}
+          {isConnected && (
+            <div className="space-y-2">
+              <Label htmlFor="ghl-pipeline">Opening Pipeline</Label>
+              {pipelinesLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading pipelines...
+                </div>
+              ) : pipelines.length > 0 ? (
+                <select
+                  id="ghl-pipeline"
+                  value={openingPipelineId}
+                  onChange={(e) => setOpeningPipelineId(e.target.value)}
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm"
+                >
+                  <option value="">Select a pipeline...</option>
+                  {pipelines.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No pipelines found. Save credentials first.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Select the pipeline where openers track leads. WON opportunities
+                become live transfers.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Actions */}
@@ -262,6 +354,22 @@ export function GHLIntegrationSettings() {
             )}
             Sync Calls
           </Button>
+
+          <Button
+            variant="outline"
+            onClick={() => syncOppsMutation.mutate()}
+            disabled={
+              syncOppsMutation.isPending || !isConnected || !openingPipelineId
+            }
+            className="border-zinc-700"
+          >
+            {syncOppsMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowDownUp className="mr-2 h-4 w-4" />
+            )}
+            Sync Opportunities
+          </Button>
         </div>
 
         {/* Status messages */}
@@ -290,11 +398,6 @@ export function GHLIntegrationSettings() {
             <p>
               {(syncMutation.data as { message?: string })?.message ?? "Sync complete."}
             </p>
-            {((syncMutation.data as { closers_synced?: number })?.closers_synced ?? 0) > 0 && (
-              <p className="text-muted-foreground">
-                {(syncMutation.data as { closers_synced?: number })?.closers_synced} new closer(s) synced.
-              </p>
-            )}
             {((syncMutation.data as { calls_discovered?: number })?.calls_discovered ?? 0) > 0 && (
               <p className="text-muted-foreground">
                 {(syncMutation.data as { calls_discovered?: number })?.calls_discovered} call(s) found,{" "}
@@ -309,6 +412,22 @@ export function GHLIntegrationSettings() {
             Sync failed:{" "}
             {syncMutation.error instanceof Error
               ? syncMutation.error.message
+              : "Unknown error"}
+          </p>
+        )}
+        {syncOppsMutation.isSuccess && (
+          <div className="text-sm text-emerald-500 space-y-1">
+            <p>
+              {(syncOppsMutation.data as { message?: string })?.message ??
+                "Opportunities synced."}
+            </p>
+          </div>
+        )}
+        {syncOppsMutation.isError && (
+          <p className="text-sm text-red-400">
+            Opportunity sync failed:{" "}
+            {syncOppsMutation.error instanceof Error
+              ? syncOppsMutation.error.message
               : "Unknown error"}
           </p>
         )}

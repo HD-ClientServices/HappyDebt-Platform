@@ -149,12 +149,19 @@ export async function processCall(
       return;
     }
 
+    // Ensure we have a closer_id (DB requires NOT NULL)
+    let resolvedCloserId = closerId;
+    if (!resolvedCloserId) {
+      const { findOrCreateCloser } = await import("@/lib/pipeline/closers");
+      resolvedCloserId = await findOrCreateCloser(supabase, orgId, "Unknown");
+    }
+
     // Insert preliminary call_recording with pending status
     const { data: recording, error: insertError } = await supabase
       .from("call_recordings")
       .insert({
         org_id: orgId,
-        closer_id: closerId,
+        closer_id: resolvedCloserId,
         recording_url: "",
         duration_seconds: parseInt(String(payload.call_duration)) || 0,
         call_date: payload.call_date || new Date().toISOString(),

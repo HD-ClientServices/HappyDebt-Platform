@@ -97,6 +97,48 @@ export interface GHLTranscriptionResponse {
   status?: string;
 }
 
+/** GHL Pipeline */
+export interface GHLPipeline {
+  id: string;
+  name: string;
+  stages: Array<{ id: string; name: string }>;
+}
+
+export interface GHLPipelinesResponse {
+  pipelines: GHLPipeline[];
+}
+
+/** GHL Opportunity */
+export interface GHLOpportunity {
+  id: string;
+  name: string;
+  status: "open" | "won" | "lost" | "abandoned";
+  monetaryValue: number;
+  assignedTo: string;
+  contact: {
+    id: string;
+    name: string;
+    phone?: string;
+    email?: string;
+    companyName?: string;
+  };
+  pipelineId: string;
+  pipelineStageId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GHLOpportunitiesSearchResponse {
+  opportunities: GHLOpportunity[];
+  meta: {
+    total: number;
+    currentPage?: number;
+    nextPageUrl?: string;
+    startAfter?: number;
+    startAfterId?: string;
+  };
+}
+
 /** Represents a discovered call ready for processing */
 export interface DiscoveredCall {
   messageId: string;
@@ -107,6 +149,6 @@ export interface DiscoveredCall {
   direction: string;
   callDate: string;
   duration: number;
-  /** GHL user who handled the call, if identifiable */
-  assignedUser?: string;
+  /** Closer name extracted from the contact's custom field {{contact.closer}} */
+  closerName?: string;
 }

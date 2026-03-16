@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 
 const authPaths = ["/dashboard", "/admin"];
 const publicPaths = ["/login", "/onboarding"];
-const bypassPaths = ["/api/webhooks", "/api/cron"];
+const bypassPaths = ["/api/webhooks", "/api/cron", "/api/pipeline"];
 
 function isAuthRequired(pathname: string) {
   return authPaths.some((p) => pathname === p || pathname.startsWith(p + "/"));
@@ -21,6 +21,11 @@ export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
 
+  // Skip auth for webhooks, cron, and pipeline endpoints (before creating Supabase client)
+  if (shouldBypass(pathname)) {
+    return response;
+  }
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -37,11 +42,6 @@ export async function middleware(request: NextRequest) {
       },
     }
   );
-
-  // Skip auth for webhooks and cron endpoints
-  if (shouldBypass(pathname)) {
-    return response;
-  }
 
   const { data: { user } } = await supabase.auth.getUser();
 

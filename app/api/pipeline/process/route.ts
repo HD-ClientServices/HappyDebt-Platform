@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processCall } from "@/lib/pipeline/process-call";
+import { findOrCreateCloser } from "@/lib/pipeline/closers";
 
 export const maxDuration = 60; // Vercel Pro: 60s timeout
 
@@ -88,6 +89,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing GHL credentials" }, { status: 400 });
     }
 
+    // Resolve closer: use pre-resolved ID, or fallback to name lookup
+    let closerId = payload.closer_id || null;
+    if (!closerId && payload.closer && payload.closer !== "N/A") {
+      closerId = await findOrCreateCloser(supabase, job.org_id, payload.closer);
+    }
+
     // Run the pipeline — pass all fields including pre-discovered IDs
     await processCall(
       {
@@ -96,7 +103,7 @@ export async function POST(req: NextRequest) {
         contact_phone: payload.contact_phone || "",
         call_duration: payload.call_duration || "0",
         business_name: payload.business_name || "",
-        closer: payload.closer || "N/A",
+        closer: payload.closer || "",
         message_id: payload.message_id || undefined,
         conversation_id: payload.conversation_id || undefined,
         direction: payload.direction || undefined,
@@ -107,7 +114,7 @@ export async function POST(req: NextRequest) {
         orgId: job.org_id,
         ghlToken,
         ghlLocationId,
-        closerId: payload.closer_id || null,
+        closerId,
       }
     );
 
