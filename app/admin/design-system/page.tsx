@@ -51,9 +51,9 @@ export default function DesignSystemPage() {
 
                     {/* Header */}
                     <div>
-                        <h2 className="text-3xl font-heading font-medium tracking-tight">HappyDebt UI</h2>
+                        <h2 className="text-3xl font-heading font-medium tracking-tight">Intro UI</h2>
                         <p className="text-muted-foreground mt-2 max-w-2xl font-sans text-sm">
-                            The living style guide. This system uses 1px strict borders, a `#0a0a0a` background base, and the HappyDebt brand Purple (`#7c3aed`) as the core accent.
+                            The living style guide. This system uses 1px strict borders, a `#0a0a0a` background base, and the Intro brand Purple (`#7c3aed`) as the core accent.
                         </p>
                     </div>
 

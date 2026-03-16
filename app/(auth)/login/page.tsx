@@ -43,7 +43,7 @@ export default function LoginPage() {
     <Card className="w-full max-w-md bg-zinc-900/80 border-zinc-800">
       <CardHeader>
         <CardTitle className="font-heading text-xl">
-          HappyDebt Client Portal
+          Intro Client Portal
         </CardTitle>
         <CardDescription>Sign in to your account</CardDescription>
       </CardHeader>
