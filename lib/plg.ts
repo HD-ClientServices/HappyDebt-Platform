@@ -1,7 +1,7 @@
 /**
  * PLG event tracking. Call from client; fire-and-forget to Edge Function + feature_usage upsert.
  */
-const SESSION_ID_KEY = "happydebt_session_id";
+const SESSION_ID_KEY = "intro_session_id";
 
 function getSessionId(): string {
   if (typeof window === "undefined") return "";

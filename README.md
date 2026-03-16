@@ -1,4 +1,4 @@
-# HappyDebt Client Portal
+# Intro Client Portal
 
 Next.js 14 App Router + Supabase + Tailwind + shadcn/ui.
 
