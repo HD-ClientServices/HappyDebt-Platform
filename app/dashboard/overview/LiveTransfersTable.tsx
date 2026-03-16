@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import {
   Table,
@@ -11,10 +11,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CheckCircle2 } from "lucide-react";
 
 export function LiveTransfersTable() {
   const supabase = createClient();
+  const queryClient = useQueryClient();
+
   const { data: transfers, isLoading } = useQuery({
     queryKey: ["live-transfers"],
     queryFn: async () => {
@@ -32,6 +36,24 @@ export function LiveTransfersTable() {
     queryFn: async () => {
       const { data } = await supabase.from("closers").select("id, name");
       return data ?? [];
+    },
+  });
+
+  const markFundedMutation = useMutation({
+    mutationFn: async (transferId: string) => {
+      const res = await fetch("/api/live-transfers/mark-funded", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: transferId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to update");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["live-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["overview-kpis"] });
     },
   });
 
@@ -81,17 +103,25 @@ export function LiveTransfersTable() {
                 <TableCell>{row.business_name ?? "—"}</TableCell>
                 <TableCell>{getCloserName(row.closer_id)}</TableCell>
                 <TableCell>
-                  <Badge
-                    variant={
-                      row.status === "funded"
-                        ? "default"
-                        : row.status === "declined"
-                          ? "destructive"
-                          : "secondary"
-                    }
-                  >
-                    {row.status}
-                  </Badge>
+                  {row.status === "funded" ? (
+                    <Badge variant="default">funded</Badge>
+                  ) : row.status === "declined" ? (
+                    <Badge variant="destructive">declined</Badge>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">{row.status}</Badge>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                        disabled={markFundedMutation.isPending}
+                        onClick={() => markFundedMutation.mutate(row.id)}
+                      >
+                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                        Mark Funded
+                      </Button>
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
                   {row.amount != null

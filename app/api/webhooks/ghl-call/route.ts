@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { findOrCreateCloser } from "@/lib/pipeline/closers";
 import type { GHLCallWebhookPayload } from "@/lib/ghl/types";
 
 export async function POST(req: NextRequest) {
@@ -46,27 +47,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No organization found" }, { status: 404 });
     }
 
-    // Find or create the closer by name
+    // Find or create the closer from {{contact.closer}} custom field
     let closerId: string | null = null;
-    if (payload.closer && payload.closer !== "N/A") {
-      const { data: closer } = await supabase
-        .from("closers")
-        .select("id")
-        .eq("org_id", orgId)
-        .ilike("name", `%${payload.closer}%`)
-        .maybeSingle();
-
-      if (closer) {
-        closerId = closer.id;
-      } else {
-        // Create a new closer entry
-        const { data: newCloser } = await supabase
-          .from("closers")
-          .insert({ org_id: orgId, name: payload.closer, active: true })
-          .select("id")
-          .single();
-        closerId = newCloser?.id || null;
-      }
+    if (payload.closer) {
+      closerId = await findOrCreateCloser(supabase, orgId, payload.closer);
     }
 
     // Insert processing job

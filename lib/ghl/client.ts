@@ -10,8 +10,14 @@ import type {
   GHLUser,
   GHLContactsResponse,
   GHLContact,
+  GHLPipeline,
+  GHLPipelinesResponse,
+  GHLOpportunitiesSearchResponse,
   DiscoveredCall,
 } from "./types";
+
+/** Key used for the closer custom field on GHL contacts */
+const CLOSER_FIELD_KEY = "contact.closer";
 
 const GHL_BASE_URL = "https://services.leadconnectorhq.com";
 
@@ -166,6 +172,36 @@ export class GHLClient {
     }
   }
 
+  /** Extract the closer name from a GHL contact's custom fields */
+  static extractCloserField(contact: GHLContact): string | null {
+    if (!contact.customFields) return null;
+    const field = contact.customFields.find(
+      (f) => f.fieldKey === CLOSER_FIELD_KEY || f.id === CLOSER_FIELD_KEY
+    );
+    if (!field || !field.value) return null;
+    return String(field.value).trim() || null;
+  }
+
+  /** Get GHL pipelines for the location */
+  async getPipelines(): Promise<GHLPipeline[]> {
+    const data = await this.request<GHLPipelinesResponse>(
+      `/opportunities/pipelines?locationId=${this.locationId}`
+    );
+    return data.pipelines || [];
+  }
+
+  /** Search opportunities in a specific pipeline with pagination */
+  async searchOpportunities(
+    pipelineId: string,
+    startAfter?: number,
+    startAfterId?: string
+  ): Promise<GHLOpportunitiesSearchResponse> {
+    let url = `/opportunities/search?location_id=${this.locationId}&pipeline_id=${pipelineId}&limit=100`;
+    if (startAfter !== undefined) url += `&startAfter=${startAfter}`;
+    if (startAfterId) url += `&startAfterId=${startAfterId}`;
+    return this.request<GHLOpportunitiesSearchResponse>(url);
+  }
+
   /**
    * Discover all completed calls from recent conversations.
    * This is the main method for bulk-syncing calls from GHL.
@@ -177,6 +213,8 @@ export class GHLClient {
    */
   async discoverRecentCalls(maxConversations = 100): Promise<DiscoveredCall[]> {
     const discovered: DiscoveredCall[] = [];
+    // Cache contacts to avoid re-fetching the same contact across conversations
+    const contactCache = new Map<string, GHLContact | null>();
 
     // Fetch conversations in batches
     const batchSize = 50;
@@ -195,10 +233,26 @@ export class GHLClient {
 
           for (const msg of messages as GHLMessage[]) {
             if (msg.messageType === "TYPE_CALL" && msg.status === "completed") {
-              // Get contact info from the conversation or fetch it
               const contactName =
                 conv.fullName || conv.contactName || "Unknown";
               const contactPhone = conv.phone || "";
+
+              // Fetch contact (with cache) to extract closer name
+              let closerName: string | undefined;
+              if (conv.contactId) {
+                if (!contactCache.has(conv.contactId)) {
+                  try {
+                    const contact = await this.getContact(conv.contactId);
+                    contactCache.set(conv.contactId, contact);
+                  } catch {
+                    contactCache.set(conv.contactId, null);
+                  }
+                }
+                const cached = contactCache.get(conv.contactId);
+                if (cached) {
+                  closerName = GHLClient.extractCloserField(cached) ?? undefined;
+                }
+              }
 
               discovered.push({
                 messageId: msg.id,
@@ -209,7 +263,7 @@ export class GHLClient {
                 direction: msg.direction || "inbound",
                 callDate: msg.dateAdded,
                 duration: msg.duration || 0,
-                assignedUser: undefined,
+                closerName,
               });
             }
           }

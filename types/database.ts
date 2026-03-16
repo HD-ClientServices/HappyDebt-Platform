@@ -1,5 +1,5 @@
 export type OrgPlan = "free" | "starter" | "growth" | "enterprise";
-export type UserRole = "admin" | "manager" | "viewer" | "happydebt_admin";
+export type UserRole = "admin" | "manager" | "viewer" | "intro_admin";
 export type LiveTransferStatus =
   | "transferred"
   | "connected"

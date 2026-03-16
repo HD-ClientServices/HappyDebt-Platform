@@ -1,9 +1,9 @@
-# HappyDebt Atomic Design System (AI QA Rulebook)
+# Intro Atomic Design System (AI QA Rulebook)
 
-This document serves as the absolute source of truth and evaluation parameters for any AI agent designing or implementing UI components for the HappyDebt platform. 
+This document serves as the absolute source of truth and evaluation parameters for any AI agent designing or implementing UI components for the Intro platform. 
 
 ## 1. Core Principles
-- **Aesthetic**: Claude Console Dark Mode (Ultra-minimalist, high-contrast borders, dark background) combined with HappyDebt's modern branding.
+- **Aesthetic**: Claude Console Dark Mode (Ultra-minimalist, high-contrast borders, dark background) combined with Intro's modern branding.
 - **Methodology**: Strict adherence to Atomic Design (Atoms → Molecules → Organisms → Templates → Pages).
 - **Precision**: 1px solid borders, consistent small border radii, high readability.
 
@@ -18,7 +18,7 @@ All colors must use semantic CSS variables mapped in Tailwind.
 - **Foreground/Text (`--foreground`)**: `#fafafa` (Off-White)
 - **Muted Text (`--muted-foreground`)**: `#a1a1aa` (Zinc-400)
 - **Borders (`--border`)**: `#27272a` (Zinc-800) - Thin, distinct lines.
-- **Primary Accent (`--primary`)**: `#7c3aed` (Purple-600) - Represents HappyDebt's brand purple optimized for dark mode.
+- **Primary Accent (`--primary`)**: `#7c3aed` (Purple-600) - Represents Intro's brand purple optimized for dark mode.
 - **Primary Accent Foreground (`--primary-foreground`)**: `#ffffff`
 
 ### 2.2 Typography
@@ -32,7 +32,7 @@ All colors must use semantic CSS variables mapped in Tailwind.
 
 ### 2.4 Border Radius
 - **Cards/Containers**: `8px` (`rounded-lg`) or `12px` (`rounded-xl`). Never fully rounded.
-- **Buttons (Primary/Secondary)**: `9999px` (`rounded-full`) for pill-shaped buttons to match HappyDebt's branding.
+- **Buttons (Primary/Secondary)**: `9999px` (`rounded-full`) for pill-shaped buttons to match Intro's branding.
 - **Inputs**: `6px` (`rounded-md`).
 
 ### 2.5 Borders
