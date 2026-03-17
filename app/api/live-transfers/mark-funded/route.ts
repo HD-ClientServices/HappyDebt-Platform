@@ -14,11 +14,13 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id } = body;
+    const { id, status } = body;
 
     if (!id) {
       return NextResponse.json({ error: "Missing transfer id" }, { status: 400 });
     }
+
+    const newStatus = status === "transferred" ? "transferred" : "funded";
 
     const admin = createAdminClient();
 
@@ -35,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     const { error } = await admin
       .from("live_transfers")
-      .update({ status: "funded" })
+      .update({ status: newStatus })
       .eq("id", id)
       .eq("org_id", userData.org_id);
 

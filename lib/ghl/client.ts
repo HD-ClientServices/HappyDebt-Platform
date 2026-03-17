@@ -149,15 +149,50 @@ export class GHLClient {
     return data.users || [];
   }
 
-  /** Get contacts with optional tag filter and pagination */
+  /** Get contacts with cursor-based pagination */
   async getContacts(
-    limit = 20,
-    page = 1,
+    limit = 100,
+    startAfter?: number,
+    startAfterId?: string,
     query?: string
   ): Promise<GHLContactsResponse> {
-    let url = `/contacts/?locationId=${this.locationId}&limit=${limit}&page=${page}`;
+    let url = `/contacts/?locationId=${this.locationId}&limit=${limit}`;
+    if (startAfter !== undefined) url += `&startAfter=${startAfter}`;
+    if (startAfterId) url += `&startAfterId=${startAfterId}`;
     if (query) url += `&query=${encodeURIComponent(query)}`;
     return this.request<GHLContactsResponse>(url);
+  }
+
+  /**
+   * Fetch ALL contacts for the location using paginated bulk requests.
+   * Returns a Map<contactId, GHLContact> for O(1) lookup.
+   * Uses cursor-based pagination (startAfter/startAfterId).
+   */
+  async getAllContacts(): Promise<Map<string, GHLContact>> {
+    const map = new Map<string, GHLContact>();
+    let hasMore = true;
+    let startAfter: number | undefined;
+    let startAfterId: string | undefined;
+
+    while (hasMore) {
+      const data = await this.getContacts(100, startAfter, startAfterId);
+      const contacts = data.contacts || [];
+      if (contacts.length === 0) break;
+
+      for (const c of contacts) {
+        map.set(c.id, c);
+      }
+
+      const meta = data.meta;
+      if (meta?.nextPageUrl && meta?.startAfter !== undefined && meta?.startAfterId) {
+        startAfter = meta.startAfter;
+        startAfterId = meta.startAfterId;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return map;
   }
 
   /** Get a single contact by ID */

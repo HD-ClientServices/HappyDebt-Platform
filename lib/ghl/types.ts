@@ -84,10 +84,12 @@ export interface GHLContactsResponse {
   contacts: GHLContact[];
   meta: {
     total: number;
-    currentPage: number;
+    currentPage?: number;
     nextPage?: number;
     prevPage?: number;
     nextPageUrl?: string;
+    startAfter?: number;
+    startAfterId?: string;
   };
 }
 

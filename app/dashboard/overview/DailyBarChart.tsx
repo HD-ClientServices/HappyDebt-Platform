@@ -13,20 +13,32 @@ import {
   Cell,
 } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DateRange } from "react-day-picker";
 
 const COLORS = ["#10b981", "#f43f5e", "#f59e0b", "#0ea5e9", "#71717a"];
+const SELECTED_COLOR = "#ffffff";
 
-export function DailyBarChart() {
+interface Props {
+  dateRange: DateRange;
+  selectedDate: string | null;
+  onSelectDate: (date: string) => void;
+}
+
+export function DailyBarChart({ dateRange, selectedDate, onSelectDate }: Props) {
   const supabase = createClient();
+  const from = dateRange.from?.toISOString() ?? new Date().toISOString();
+  const to = dateRange.to
+    ? new Date(dateRange.to.getFullYear(), dateRange.to.getMonth(), dateRange.to.getDate(), 23, 59, 59).toISOString()
+    : new Date().toISOString();
+
   const { data, isLoading } = useQuery({
-    queryKey: ["live-transfers-daily"],
+    queryKey: ["live-transfers-daily", from, to],
     queryFn: async () => {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
       const { data: transfers } = await supabase
         .from("live_transfers")
         .select("transfer_date")
-        .gte("transfer_date", start.toISOString());
+        .gte("transfer_date", from)
+        .lte("transfer_date", to);
       const byDay: Record<string, number> = {};
       (transfers ?? []).forEach((t) => {
         const d = new Date(t.transfer_date).toISOString().slice(0, 10);
@@ -44,13 +56,37 @@ export function DailyBarChart() {
 
   const chartData = data?.length ? data : [{ date: "—", count: 0 }];
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleBarClick = (data: any) => {
+    const date = data?.date;
+    if (date && date !== "—") onSelectDate(date);
+  };
+
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-4">
-      <h2 className="font-heading text-lg font-medium mb-4">
-        Live transfers by day
-      </h2>
+    <div
+      className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-4 select-none"
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-heading text-lg font-medium">
+          Live transfers by day
+        </h2>
+        {selectedDate && (
+          <button
+            onClick={() => onSelectDate(selectedDate)}
+            className="text-xs text-muted-foreground hover:text-zinc-300 transition-colors"
+          >
+            Clear filter
+          </button>
+        )}
+      </div>
       <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+        <BarChart
+          data={chartData}
+          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+          style={{ cursor: "pointer", outline: "none" }}
+          accessibilityLayer={false}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
           <XAxis
             dataKey="date"
@@ -65,11 +101,27 @@ export function DailyBarChart() {
               border: "1px solid #3f3f46",
               borderRadius: "0.5rem",
             }}
+            cursor={{ fill: "rgba(255, 255, 255, 0.03)" }}
             labelFormatter={(v) => (v === "—" ? v : v)}
           />
-          <Bar dataKey="count" fill="#10b981" radius={[4, 4, 0, 0]}>
-            {chartData.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+          <Bar
+            dataKey="count"
+            fill="#10b981"
+            radius={[4, 4, 0, 0]}
+            onClick={handleBarClick}
+            cursor="pointer"
+          >
+            {chartData.map((entry, i) => (
+              <Cell
+                key={i}
+                fill={
+                  selectedDate === entry.date
+                    ? SELECTED_COLOR
+                    : selectedDate
+                      ? `${COLORS[i % COLORS.length]}40`
+                      : COLORS[i % COLORS.length]
+                }
+              />
             ))}
           </Bar>
         </BarChart>
