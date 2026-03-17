@@ -55,7 +55,7 @@ export function CloserRankingPanel() {
 
   if (isLoading) {
     return (
-      <Card className="bg-zinc-900/80 border-zinc-800">
+      <Card className="bg-card border-border">
         <CardHeader>
           <Skeleton className="h-5 w-32" />
         </CardHeader>
@@ -69,7 +69,7 @@ export function CloserRankingPanel() {
   }
 
   return (
-    <Card className="bg-zinc-900/80 border-zinc-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="font-heading text-lg">Closer ranking</CardTitle>
       </CardHeader>
@@ -82,11 +82,11 @@ export function CloserRankingPanel() {
               key={c.id}
               type="button"
               onClick={() => router.push(`/dashboard/voc/${c.id}`)}
-              className="w-full flex items-center gap-3 rounded-lg p-2 text-left hover:bg-zinc-800/50 transition-colors"
+              className="w-full flex items-center gap-3 rounded-lg p-2 text-left hover:bg-muted/50 transition-colors"
             >
               <Avatar className="h-9 w-9">
                 <AvatarImage src={c.avatar_url} />
-                <AvatarFallback className="bg-zinc-700 text-xs">
+                <AvatarFallback className="bg-muted text-xs">
                   {c.name.slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>

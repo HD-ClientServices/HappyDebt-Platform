@@ -40,7 +40,7 @@ export default function LoginPage() {
   };
 
   return (
-    <Card className="w-full max-w-md bg-zinc-900/80 border-zinc-800">
+    <Card className="w-full max-w-md bg-card border-border">
       <CardHeader>
         <CardTitle className="font-heading text-xl">
           HappyDebt Client Portal
@@ -58,7 +58,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="bg-zinc-800 border-zinc-700"
+              className="bg-muted border-border"
             />
           </div>
           <div className="space-y-2">
@@ -70,13 +70,13 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="bg-zinc-800 border-zinc-700"
+              className="bg-muted border-border"
             />
           </div>
-          {error && <p className="text-sm text-rose-500">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             type="submit"
-            className="w-full bg-emerald-600 hover:bg-emerald-700"
+            className="w-full bg-success hover:bg-success/90"
             disabled={loading}
           >
             {loading ? "Signing in…" : "Sign in"}

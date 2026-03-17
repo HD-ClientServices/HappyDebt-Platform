@@ -29,11 +29,11 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex flex-col border-r border-zinc-800 bg-zinc-900/80 transition-[width] duration-200",
+        "flex flex-col border-r border-border bg-card transition-[width] duration-200",
         collapsed ? "w-[60px]" : "w-[240px]"
       )}
     >
-      <div className="flex h-14 items-center border-b border-zinc-800 px-3">
+      <div className="flex h-14 items-center border-b border-border px-3">
         {!collapsed && (
           <span className="font-heading font-semibold text-lg text-foreground">
             HappyDebt
@@ -50,8 +50,8 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 active
-                  ? "bg-zinc-800 text-foreground"
-                  : "text-muted-foreground hover:bg-zinc-800/50 hover:text-foreground"
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
               )}
             >
               <Icon className="h-5 w-5 shrink-0" />
@@ -60,7 +60,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="border-t border-zinc-800 p-2">
+      <div className="border-t border-border p-2">
         <Button
           variant="ghost"
           size="icon-sm"

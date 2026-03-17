@@ -14,7 +14,8 @@ import {
 } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const COLORS = ["#10b981", "#f43f5e", "#f59e0b", "#0ea5e9", "#71717a"];
+/* Design-system chart palette */
+const COLORS = ["var(--color-success)", "var(--color-destructive)", "var(--color-warning)", "var(--color-primary)", "var(--color-muted-foreground)"];
 
 export function DailyBarChart() {
   const supabase = createClient();
@@ -45,29 +46,29 @@ export function DailyBarChart() {
   const chartData = data?.length ? data : [{ date: "—", count: 0 }];
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <h2 className="font-heading text-lg font-medium mb-4">
         Live transfers by day
       </h2>
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
           <XAxis
             dataKey="date"
-            stroke="#71717a"
-            tick={{ fill: "#a1a1aa", fontSize: 12 }}
+            stroke="var(--color-muted-foreground)"
+            tick={{ fill: "var(--color-muted-foreground)", fontSize: 12 }}
             tickFormatter={(v) => (v === "—" ? v : v.slice(5))}
           />
-          <YAxis stroke="#71717a" tick={{ fill: "#a1a1aa", fontSize: 12 }} />
+          <YAxis stroke="var(--color-muted-foreground)" tick={{ fill: "var(--color-muted-foreground)", fontSize: 12 }} />
           <Tooltip
             contentStyle={{
-              backgroundColor: "#27272a",
-              border: "1px solid #3f3f46",
+              backgroundColor: "var(--color-card)",
+              border: "1px solid var(--color-border)",
               borderRadius: "0.5rem",
             }}
             labelFormatter={(v) => (v === "—" ? v : v)}
           />
-          <Bar dataKey="count" fill="#10b981" radius={[4, 4, 0, 0]}>
+          <Bar dataKey="count" fill="var(--color-success)" radius={[4, 4, 0, 0]}>
             {chartData.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
             ))}

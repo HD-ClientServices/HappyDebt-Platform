@@ -110,7 +110,7 @@ export function CallAudioPlayer({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-lg bg-zinc-800/80 border border-zinc-700 p-2",
+        "flex items-center gap-2 rounded-lg bg-muted/80 border border-border p-2",
         className
       )}
     >
@@ -155,7 +155,7 @@ export function CallAudioPlayer({
           max={duration || 100}
           value={currentTime}
           onChange={setProgress}
-          className="flex-1 h-1.5 rounded-full appearance-none bg-zinc-700 accent-emerald-500"
+          className="flex-1 h-1.5 rounded-full appearance-none bg-border accent-success"
         />
         <span className="text-xs tabular-nums text-muted-foreground w-9">
           {formatTime(duration)}
@@ -165,7 +165,7 @@ export function CallAudioPlayer({
         <select
           value={speed}
           onChange={(e) => setSpeed(Number(e.target.value))}
-          className="text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1"
+          className="text-xs bg-muted border border-border rounded px-2 py-1"
         >
           {SPEEDS.map((s) => (
             <option key={s} value={s}>

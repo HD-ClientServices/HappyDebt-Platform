@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>intro — Design System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="typography.css">
+  <link rel="stylesheet" href="components.css">
+  <style>
+    /* ─── STYLE GUIDE LAYOUT (not part of the design system) ── */
+    .guide {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: var(--space-8) var(--space-6);
+    }
+    .guide-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-12);
+    }
+    .guide-logo {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+    .guide-logo svg { width: 40px; height: 40px; }
+    .guide-section {
+      margin-bottom: var(--space-16);
+    }
+    .guide-section-title {
+      margin-bottom: var(--space-6);
+      padding-bottom: var(--space-3);
+      border-bottom: 1px solid var(--color-divider);
+    }
+    .guide-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+    .guide-col {
+      flex: 1;
+      min-width: 280px;
+    }
+    .swatch {
+      width: 100%;
+      height: 64px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      margin-bottom: var(--space-1);
+    }
+    .swatch-label {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--color-text-secondary);
+    }
+    .swatch-label code {
+      color: var(--color-text-primary);
+      font-size: 10px;
+    }
+    .type-specimen {
+      margin-bottom: var(--space-4);
+    }
+    .type-specimen .meta {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--color-text-muted);
+      margin-top: 2px;
+    }
+    .spacing-bar {
+      height: 12px;
+      background-color: var(--color-gold-subtle);
+      border: 1px solid var(--color-gold-border);
+      border-radius: 3px;
+      margin-bottom: var(--space-1);
+    }
+    .demo-sidebar {
+      width: 220px;
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .demo-sidebar .nav-sidebar {
+      min-height: auto;
+      border-right: none;
+    }
+    .demo-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: var(--space-4);
+    }
+    .demo-btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+      align-items: center;
+    }
+    .demo-table-wrap {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .demo-input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-4);
+    }
+    .side-by-side {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-6);
+    }
+    .side-by-side > div {
+      padding: var(--space-6);
+      border-radius: var(--radius-lg);
+    }
+    .side-dark {
+      background-color: #100F0D;
+      color: #F0EDE6;
+    }
+    .side-light {
+      background-color: #F5F0E8;
+      color: #100F0D;
+    }
+    .side-by-side .label {
+      font-family: var(--font-body);
+      font-size: 9px;
+      font-weight: 300;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: var(--space-3);
+      opacity: 0.5;
+    }
+    .side-dark .swatch { border-color: #2A2820; }
+    .side-light .swatch { border-color: #EDE8DE; }
+    .radius-demo {
+      display: flex;
+      gap: var(--space-4);
+      align-items: end;
+    }
+    .radius-box {
+      width: 64px;
+      height: 64px;
+      background-color: var(--color-elevated);
+      border: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: var(--color-text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <div class="guide">
+
+    <!-- ─── HEADER ──────────────────────────────────────────── -->
+    <header class="guide-header">
+      <div class="guide-logo">
+        <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="20,6 10,18 20,30" fill="none" stroke="currentColor"
+            stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="23" cy="18" r="4" fill="#C8A96E"/>
+        </svg>
+        <span class="text-2xl font-display" style="font-weight:800;">intro</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:var(--space-3);">
+        <span class="text-sm text-secondary">Design System v1.0</span>
+        <button class="theme-toggle" onclick="toggleTheme()">
+          <span class="theme-toggle-icon" id="themeIcon">&#9790;</span>
+          <span id="themeLabel">Dark</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ─── TAGLINE ─────────────────────────────────────────── -->
+    <div class="guide-section" style="text-align:center; margin-bottom:var(--space-16);">
+      <p class="text-4xl" style="margin-bottom:var(--space-3);">We make the intro.</p>
+      <p class="text-lg text-secondary">We make the intro, you close the deal.</p>
+    </div>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- COLORS                                                  -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Color Tokens</h2>
+
+      <!-- Side-by-side dark/light comparison -->
+      <div class="side-by-side" style="margin-bottom:var(--space-6);">
+        <div class="side-dark">
+          <div class="label">Dark Mode (default)</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+            <div>
+              <div class="swatch" style="background:#100F0D;"></div>
+              <div class="swatch-label">bg <code>#100F0D</code></div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#1C1B18;"></div>
+              <div class="swatch-label">surface <code>#1C1B18</code></div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#2A2820;"></div>
+              <div class="swatch-label">elevated <code>#2A2820</code></div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#F0EDE6;"></div>
+              <div class="swatch-label">text-primary</div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#6B6860;"></div>
+              <div class="swatch-label">text-secondary</div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#3A3830;"></div>
+              <div class="swatch-label">text-muted</div>
+            </div>
+          </div>
+        </div>
+        <div class="side-light">
+          <div class="label">Light Mode</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+            <div>
+              <div class="swatch" style="background:#F5F0E8;"></div>
+              <div class="swatch-label">bg <code>#F5F0E8</code></div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#FFFFFF;"></div>
+              <div class="swatch-label">surface <code>#FFFFFF</code></div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#EDE8DE;"></div>
+              <div class="swatch-label">elevated <code>#EDE8DE</code></div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#100F0D;"></div>
+              <div class="swatch-label">text-primary</div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#8A8070;"></div>
+              <div class="swatch-label">text-secondary</div>
+            </div>
+            <div>
+              <div class="swatch" style="background:#C0B49A;"></div>
+              <div class="swatch-label">text-muted</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gold accent -->
+      <h3 class="text-xl" style="margin-bottom:var(--space-3);">Gold Accent (shared)</h3>
+      <div class="guide-row">
+        <div style="flex:1; min-width:120px;">
+          <div class="swatch" style="background:var(--color-gold);"></div>
+          <div class="swatch-label">gold <code>#C8A96E</code></div>
+        </div>
+        <div style="flex:1; min-width:120px;">
+          <div class="swatch" style="background:var(--color-gold-dark);"></div>
+          <div class="swatch-label">gold-dark <code>#B8924A</code></div>
+        </div>
+        <div style="flex:1; min-width:120px;">
+          <div class="swatch" style="background:var(--color-gold-subtle); border-color:var(--color-gold-border);"></div>
+          <div class="swatch-label">gold-subtle</div>
+        </div>
+        <div style="flex:1; min-width:120px;">
+          <div class="swatch" style="background:transparent; border: 2px solid var(--color-gold-border);"></div>
+          <div class="swatch-label">gold-border</div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- TYPOGRAPHY                                              -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Typography</h2>
+
+      <div class="type-specimen">
+        <div class="text-4xl">text-4xl — Landing Hero</div>
+        <div class="meta">Syne 800 · 48px · line-height 1.1</div>
+      </div>
+      <div class="type-specimen">
+        <div class="text-3xl">text-3xl — KPI Values</div>
+        <div class="meta">Syne 800 · 32px · line-height 1.2</div>
+      </div>
+      <div class="type-specimen">
+        <div class="text-2xl">text-2xl — Section Headers</div>
+        <div class="meta">Syne 700 · 24px · line-height 1.25</div>
+      </div>
+      <div class="type-specimen">
+        <div class="text-xl">text-xl — Page Titles</div>
+        <div class="meta">Syne 700 · 18px · line-height 1.3</div>
+      </div>
+      <div class="type-specimen">
+        <div class="text-lg">text-lg — Body Emphasis</div>
+        <div class="meta">DM Sans 500 · 16px · line-height 1.4</div>
+      </div>
+      <div class="type-specimen">
+        <div class="text-md">text-md — Body text. The standard reading size for interface copy and content.</div>
+        <div class="meta">DM Sans 400 · 13px · line-height 1.5</div>
+      </div>
+      <div class="type-specimen">
+        <div class="text-sm">text-sm — Captions and secondary information</div>
+        <div class="meta">DM Sans 400 · 11px · line-height 1.5</div>
+      </div>
+      <div class="type-specimen">
+        <div class="text-xs">text-xs — uppercase labels</div>
+        <div class="meta">DM Sans 300 · 9px · tracking 1.5px · uppercase</div>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SPACING & RADIUS                                        -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Spacing & Radius</h2>
+      <div class="guide-row">
+        <div class="guide-col">
+          <h3 class="text-xl" style="margin-bottom:var(--space-3);">Spacing Scale</h3>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:4px;"></div><span class="swatch-label">--space-1 · 4px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:8px;"></div><span class="swatch-label">--space-2 · 8px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:12px;"></div><span class="swatch-label">--space-3 · 12px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:16px;"></div><span class="swatch-label">--space-4 · 16px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:20px;"></div><span class="swatch-label">--space-5 · 20px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:24px;"></div><span class="swatch-label">--space-6 · 24px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:32px;"></div><span class="swatch-label">--space-8 · 32px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:40px;"></div><span class="swatch-label">--space-10 · 40px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:48px;"></div><span class="swatch-label">--space-12 · 48px</span></div>
+          <div style="margin-bottom:4px;"><div class="spacing-bar" style="width:64px;"></div><span class="swatch-label">--space-16 · 64px</span></div>
+        </div>
+        <div class="guide-col">
+          <h3 class="text-xl" style="margin-bottom:var(--space-3);">Border Radius</h3>
+          <div class="radius-demo">
+            <div>
+              <div class="radius-box" style="border-radius:var(--radius-sm);">sm</div>
+              <div class="swatch-label" style="margin-top:4px;">6px</div>
+            </div>
+            <div>
+              <div class="radius-box" style="border-radius:var(--radius-md);">md</div>
+              <div class="swatch-label" style="margin-top:4px;">10px</div>
+            </div>
+            <div>
+              <div class="radius-box" style="border-radius:var(--radius-lg);">lg</div>
+              <div class="swatch-label" style="margin-top:4px;">14px</div>
+            </div>
+            <div>
+              <div class="radius-box" style="border-radius:var(--radius-xl);">xl</div>
+              <div class="swatch-label" style="margin-top:4px;">20px</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- LOGO                                                    -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Logo</h2>
+      <div class="side-by-side">
+        <div class="side-dark" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--space-4); min-height:160px;">
+          <div class="label">On Dark</div>
+          <div style="display:flex; align-items:center; gap:var(--space-3);">
+            <svg viewBox="0 0 36 36" width="48" height="48" xmlns="http://www.w3.org/2000/svg" style="color:#F0EDE6;">
+              <polyline points="20,6 10,18 20,30" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="23" cy="18" r="4" fill="#C8A96E"/>
+            </svg>
+            <span style="font-family:'Syne',sans-serif; font-weight:800; font-size:28px; color:#F0EDE6;">intro</span>
+          </div>
+        </div>
+        <div class="side-light" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--space-4); min-height:160px;">
+          <div class="label">On Light</div>
+          <div style="display:flex; align-items:center; gap:var(--space-3);">
+            <svg viewBox="0 0 36 36" width="48" height="48" xmlns="http://www.w3.org/2000/svg" style="color:#100F0D;">
+              <polyline points="20,6 10,18 20,30" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="23" cy="18" r="4" fill="#C8A96E"/>
+            </svg>
+            <span style="font-family:'Syne',sans-serif; font-weight:800; font-size:28px; color:#100F0D;">intro</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- NAVIGATION                                              -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Navigation Sidebar</h2>
+      <div class="demo-sidebar">
+        <nav class="nav-sidebar">
+          <div class="nav-logo">
+            <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+              <polyline points="20,6 10,18 20,30" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="23" cy="18" r="4" fill="#C8A96E"/>
+            </svg>
+            <span class="nav-logo-text">intro</span>
+          </div>
+          <a class="nav-item active" href="#">Dashboard</a>
+          <a class="nav-item" href="#">Pipeline</a>
+          <a class="nav-item" href="#">Contacts</a>
+          <a class="nav-item" href="#">Analytics</a>
+          <a class="nav-item" href="#">Settings</a>
+        </nav>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- CARDS                                                   -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Cards</h2>
+      <div class="demo-cards">
+        <div class="card">
+          <div class="card-label">Total Leads</div>
+          <div class="card-value">1,284</div>
+          <div class="card-subtitle">+12% vs last month</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Live Transfers</div>
+          <div class="card-value">347</div>
+          <div class="card-subtitle">27% transfer rate</div>
+        </div>
+        <div class="card-accent">
+          <div class="card-label">Closing Rate</div>
+          <div class="card-value">34.2%</div>
+          <div class="card-subtitle">North star metric</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Revenue</div>
+          <div class="card-value">$48.6k</div>
+          <div class="card-subtitle">MTD</div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- BUTTONS                                                 -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Buttons</h2>
+      <div class="demo-btn-row" style="margin-bottom:var(--space-4);">
+        <button class="btn-primary">Primary Action</button>
+        <button class="btn-secondary">Secondary</button>
+        <button class="btn-ghost">Ghost</button>
+      </div>
+      <div class="demo-btn-row">
+        <button class="btn-primary btn-sm">Small Primary</button>
+        <button class="btn-secondary btn-sm">Small Secondary</button>
+        <button class="btn-ghost btn-sm">Small Ghost</button>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- TAGS                                                    -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Tags &amp; Badges</h2>
+      <div class="demo-btn-row">
+        <span class="tag">Qualified</span>
+        <span class="tag">Active</span>
+        <span class="tag">Transferred</span>
+        <span class="tag-neutral tag">Pending</span>
+        <span class="tag-neutral tag">Archived</span>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- TABLE                                                   -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Table</h2>
+      <div class="demo-table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Lead Name</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th>Value</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Marcus Holden</td>
+              <td class="text-secondary">Referral</td>
+              <td><span class="tag">Qualified</span></td>
+              <td>$12,400</td>
+              <td class="text-secondary">Mar 14</td>
+            </tr>
+            <tr>
+              <td>Diana Reeves</td>
+              <td class="text-secondary">Live Transfer</td>
+              <td><span class="tag">Active</span></td>
+              <td>$8,200</td>
+              <td class="text-secondary">Mar 13</td>
+            </tr>
+            <tr>
+              <td>Robert Castillo</td>
+              <td class="text-secondary">Inbound</td>
+              <td><span class="tag-neutral tag">Pending</span></td>
+              <td>$15,700</td>
+              <td class="text-secondary">Mar 12</td>
+            </tr>
+            <tr>
+              <td>Sarah Kim</td>
+              <td class="text-secondary">Campaign</td>
+              <td><span class="tag">Transferred</span></td>
+              <td>$6,900</td>
+              <td class="text-secondary">Mar 11</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- INPUTS                                                  -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Inputs</h2>
+      <div class="demo-input-grid">
+        <div>
+          <label class="input-label" for="demo-name">Full Name</label>
+          <input class="input" id="demo-name" type="text" placeholder="Enter full name">
+        </div>
+        <div>
+          <label class="input-label" for="demo-email">Email Address</label>
+          <input class="input" id="demo-email" type="email" placeholder="name@company.com">
+        </div>
+        <div>
+          <label class="input-label" for="demo-company">Company</label>
+          <input class="input" id="demo-company" type="text" placeholder="Company name">
+        </div>
+        <div>
+          <label class="input-label" for="demo-value">Deal Value</label>
+          <input class="input" id="demo-value" type="text" placeholder="$0.00">
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- DIVIDERS                                                -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <section class="guide-section">
+      <h2 class="text-2xl guide-section-title">Dividers</h2>
+      <p class="text-md text-secondary" style="margin-bottom:var(--space-3);">Content above the divider</p>
+      <hr class="divider">
+      <p class="text-md text-secondary">Content below the divider</p>
+    </section>
+
+
+    <!-- ─── FOOTER ──────────────────────────────────────────── -->
+    <footer style="text-align:center; padding:var(--space-8) 0; border-top:1px solid var(--color-divider);">
+      <p class="text-sm text-muted">intro Design System v1.0 — We make the intro.</p>
+    </footer>
+
+  </div>
+
+  <!-- ─── THEME TOGGLE SCRIPT ─────────────────────────────── -->
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      document.getElementById('themeIcon').innerHTML = next === 'dark' ? '&#9790;' : '&#9788;';
+      document.getElementById('themeLabel').textContent = next === 'dark' ? 'Dark' : 'Light';
+    }
+  </script>
+</body>
+</html>

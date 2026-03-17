@@ -26,7 +26,7 @@ export function StatCard({
   return (
     <Card
       className={cn(
-        "bg-zinc-900/80 backdrop-blur-sm border-zinc-800 rounded-xl",
+        "bg-card backdrop-blur-sm border-border rounded-xl",
         className
       )}
     >
@@ -41,8 +41,8 @@ export function StatCard({
           <p
             className={cn(
               "text-xs font-medium",
-              trend === "positive" && "text-emerald-500",
-              trend === "negative" && "text-rose-500",
+              trend === "positive" && "text-success",
+              trend === "negative" && "text-destructive",
               trend === "neutral" && "text-muted-foreground"
             )}
           >

@@ -81,7 +81,7 @@ export function QACriteriaChart() {
 
   if (!data || data.length === 0) {
     return (
-      <Card className="bg-zinc-900/80 border-zinc-800">
+      <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="font-heading text-lg">
             QA Criteria Breakdown
@@ -97,7 +97,7 @@ export function QACriteriaChart() {
   }
 
   return (
-    <Card className="bg-zinc-900/80 border-zinc-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="font-heading text-lg">
           QA Criteria Breakdown
@@ -112,29 +112,29 @@ export function QACriteriaChart() {
             data={data}
             margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
             <XAxis
               dataKey="name"
-              stroke="#71717a"
-              tick={{ fill: "#a1a1aa", fontSize: 11 }}
+              stroke="var(--color-muted-foreground)"
+              tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }}
               angle={-15}
               textAnchor="end"
               height={60}
             />
-            <YAxis stroke="#71717a" tick={{ fill: "#a1a1aa", fontSize: 12 }} />
+            <YAxis stroke="var(--color-muted-foreground)" tick={{ fill: "var(--color-muted-foreground)", fontSize: 12 }} />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#27272a",
-                border: "1px solid #3f3f46",
+                backgroundColor: "var(--color-card)",
+                border: "1px solid var(--color-border)",
                 borderRadius: "0.5rem",
               }}
             />
             <Legend
               wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
             />
-            <Bar dataKey="good" fill="#10b981" name="Good" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="partial" fill="#f59e0b" name="Partial" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="missed" fill="#ef4444" name="Missed" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="good" fill="var(--color-success)" name="Good" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="partial" fill="var(--color-warning)" name="Partial" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="missed" fill="var(--color-destructive)" name="Missed" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>

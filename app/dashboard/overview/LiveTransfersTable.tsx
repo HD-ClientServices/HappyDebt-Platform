@@ -40,7 +40,7 @@ export function LiveTransfersTable() {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-zinc-800 overflow-hidden">
+      <div className="rounded-xl border border-border overflow-hidden">
         <Skeleton className="h-10 w-full" />
         {[1, 2, 3, 4, 5].map((i) => (
           <Skeleton key={i} className="h-12 w-full rounded-none" />
@@ -50,10 +50,10 @@ export function LiveTransfersTable() {
   }
 
   return (
-    <div className="rounded-xl border border-zinc-800 overflow-hidden">
+    <div className="rounded-xl border border-border overflow-hidden">
       <Table>
         <TableHeader>
-          <TableRow className="border-zinc-800 bg-zinc-900/50">
+          <TableRow className="border-border bg-card/50">
             <TableHead>Date</TableHead>
             <TableHead>Lead</TableHead>
             <TableHead>Business</TableHead>
@@ -71,7 +71,7 @@ export function LiveTransfersTable() {
             </TableRow>
           ) : (
             (transfers ?? []).map((row) => (
-              <TableRow key={row.id} className="border-zinc-800">
+              <TableRow key={row.id} className="border-border">
                 <TableCell className="text-muted-foreground">
                   {new Date(row.transfer_date).toLocaleDateString("es-CL", {
                     timeZone: "America/Santiago",

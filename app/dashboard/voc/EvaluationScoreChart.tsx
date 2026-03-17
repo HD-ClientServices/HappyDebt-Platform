@@ -58,7 +58,7 @@ export function EvaluationScoreChart() {
   const orgAvg = data?.avg ?? 0;
 
   return (
-    <Card className="bg-zinc-900/80 border-zinc-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="font-heading text-lg">
           Avg evaluation score by closer
@@ -71,18 +71,18 @@ export function EvaluationScoreChart() {
             layout="vertical"
             margin={{ top: 8, right: 8, left: 60, bottom: 0 }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
-            <XAxis type="number" domain={[0, 100]} stroke="#71717a" tick={{ fill: "#a1a1aa" }} />
-            <YAxis type="category" dataKey="name" stroke="#71717a" tick={{ fill: "#a1a1aa", fontSize: 12 }} width={80} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+            <XAxis type="number" domain={[0, 100]} stroke="var(--color-muted-foreground)" tick={{ fill: "var(--color-muted-foreground)" }} />
+            <YAxis type="category" dataKey="name" stroke="var(--color-muted-foreground)" tick={{ fill: "var(--color-muted-foreground)", fontSize: 12 }} width={80} />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#27272a",
-                border: "1px solid #3f3f46",
+                backgroundColor: "var(--color-card)",
+                border: "1px solid var(--color-border)",
                 borderRadius: "0.5rem",
               }}
             />
-            <ReferenceLine x={orgAvg} stroke="#f59e0b" strokeDasharray="3 3" />
-            <Bar dataKey="score" fill="#10b981" radius={[0, 4, 4, 0]} />
+            <ReferenceLine x={orgAvg} stroke="var(--color-warning)" strokeDasharray="3 3" />
+            <Bar dataKey="score" fill="var(--color-success)" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>

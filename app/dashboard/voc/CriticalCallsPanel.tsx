@@ -23,7 +23,7 @@ const miniScore = (score: string | undefined) => {
   if (!score) return null;
   const s = score.toLowerCase();
   if (s.includes("good"))
-    return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
+    return <CheckCircle2 className="h-3.5 w-3.5 text-success" />;
   if (s.includes("partial"))
     return <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />;
   return <XCircle className="h-3.5 w-3.5 text-red-500" />;
@@ -61,7 +61,7 @@ export function CriticalCallsPanel() {
 
   if (isLoading) {
     return (
-      <Card className="bg-zinc-900/80 border-zinc-800">
+      <Card className="bg-card border-border">
         <CardHeader>
           <Skeleton className="h-5 w-48" />
         </CardHeader>
@@ -74,7 +74,7 @@ export function CriticalCallsPanel() {
 
   return (
     <>
-      <Card className="bg-zinc-900/80 border-zinc-800">
+      <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="font-heading text-lg">Critical calls</CardTitle>
           <p className="text-sm text-muted-foreground">
@@ -90,7 +90,7 @@ export function CriticalCallsPanel() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-zinc-800">
+                  <TableRow className="border-border">
                     <TableHead>Date</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>Closer</TableHead>
@@ -113,7 +113,7 @@ export function CriticalCallsPanel() {
                       : [];
 
                     return (
-                      <TableRow key={row.id} className="border-zinc-800">
+                      <TableRow key={row.id} className="border-border">
                         <TableCell className="text-muted-foreground whitespace-nowrap">
                           {new Date(row.call_date).toLocaleDateString("es-CL", {
                             timeZone: "America/Santiago",

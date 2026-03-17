@@ -82,10 +82,10 @@ export function DrillDownModal<T extends Record<string, unknown>>({
             <DialogDescription>{description}</DialogDescription>
           )}
         </DialogHeader>
-        <div className="overflow-auto flex-1 border border-zinc-800 rounded-lg">
+        <div className="overflow-auto flex-1 border border-border rounded-lg">
           <Table>
             <TableHeader>
-              <TableRow className="border-zinc-800 bg-zinc-900/50 sticky top-0">
+              <TableRow className="border-border bg-card/50 sticky top-0">
                 {columns.map((col) => (
                   <TableHead key={col.id} className="font-medium">
                     {col.header}
@@ -116,8 +116,8 @@ export function DrillDownModal<T extends Record<string, unknown>>({
                   <TableRow
                     key={String(recordIdKey ? row[recordIdKey] : idx)}
                     className={cn(
-                      "border-zinc-800",
-                      idx % 2 === 1 && "bg-zinc-950/50"
+                      "border-border",
+                      idx % 2 === 1 && "bg-card/50"
                     )}
                   >
                     {columns.map((col) => (

@@ -57,7 +57,7 @@ export default function OnboardingPage() {
   };
 
   return (
-    <Card className="w-full max-w-md bg-zinc-900/80 border-zinc-800">
+    <Card className="w-full max-w-md bg-card border-border">
       <CardHeader>
         <CardTitle className="font-heading text-xl">
           Set up your organization
@@ -75,7 +75,7 @@ export default function OnboardingPage() {
               value={orgName}
               onChange={(e) => setOrgName(e.target.value)}
               placeholder="Acme Funding Co."
-              className="bg-zinc-800 border-zinc-700"
+              className="bg-muted border-border"
               required
             />
           </div>
