@@ -96,13 +96,13 @@ export function EvaluationTemplateEditor() {
   }
 
   return (
-    <Card className="bg-zinc-900/80 border-zinc-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="font-heading">Evaluation template</CardTitle>
         <p className="text-sm text-muted-foreground">
           Weights must sum to 1.0. Current sum: {weightsSum.toFixed(2)}
           {!weightsValid && (
-            <span className="text-rose-500 ml-2">(must be 1.0)</span>
+            <span className="text-destructive ml-2">(must be 1.0)</span>
           )}
         </p>
       </CardHeader>
@@ -110,14 +110,14 @@ export function EvaluationTemplateEditor() {
         {criteria.map((c, i) => (
           <div
             key={i}
-            className="flex flex-wrap items-end gap-4 rounded-lg border border-zinc-800 p-4"
+            className="flex flex-wrap items-end gap-4 rounded-lg border border-border p-4"
           >
             <div className="flex-1 min-w-[200px] space-y-2">
               <Label>Name</Label>
               <Input
                 value={c.name}
                 onChange={(e) => updateCriterion(i, { name: e.target.value })}
-                className="bg-zinc-800 border-zinc-700"
+                className="bg-muted border-border"
               />
             </div>
             <div className="flex-1 min-w-[200px] space-y-2">
@@ -125,7 +125,7 @@ export function EvaluationTemplateEditor() {
               <Input
                 value={c.description}
                 onChange={(e) => updateCriterion(i, { description: e.target.value })}
-                className="bg-zinc-800 border-zinc-700"
+                className="bg-muted border-border"
               />
             </div>
             <div className="w-32 space-y-2">
@@ -139,7 +139,7 @@ export function EvaluationTemplateEditor() {
                 onChange={(e) =>
                   updateCriterion(i, { weight: Number(e.target.value) })
                 }
-                className="bg-zinc-800 border-zinc-700"
+                className="bg-muted border-border"
               />
             </div>
             <div className="w-24 space-y-2">
@@ -151,7 +151,7 @@ export function EvaluationTemplateEditor() {
                 onChange={(e) =>
                   updateCriterion(i, { max_score: Number(e.target.value) })
                 }
-                className="bg-zinc-800 border-zinc-700"
+                className="bg-muted border-border"
               />
             </div>
             <Button
@@ -159,13 +159,13 @@ export function EvaluationTemplateEditor() {
               variant="ghost"
               size="icon"
               onClick={() => removeCriterion(i)}
-              className="text-rose-500 hover:text-rose-400"
+              className="text-destructive hover:text-destructive"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         ))}
-        <Button variant="outline" onClick={addCriterion} className="border-zinc-700">
+        <Button variant="outline" onClick={addCriterion} className="border-border">
           <Plus className="mr-2 h-4 w-4" />
           Add criterion
         </Button>

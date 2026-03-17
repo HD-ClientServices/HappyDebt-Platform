@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <!-- intro logo mark: chevron bracket + gold dot -->
+  <polyline points="20,6 10,18 20,30" fill="none" stroke="currentColor"
+    stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="23" cy="18" r="4" fill="#C8A96E"/>
+</svg>

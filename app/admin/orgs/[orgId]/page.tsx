@@ -24,7 +24,7 @@ export default async function AdminOrgDetailPage({
   return (
     <div className="space-y-6">
       <h1 className="font-heading text-2xl font-semibold">{org.name}</h1>
-      <Card className="bg-zinc-900/80 border-zinc-800">
+      <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="font-heading">Details</CardTitle>
         </CardHeader>
@@ -33,7 +33,7 @@ export default async function AdminOrgDetailPage({
           <p><span className="text-muted-foreground">Plan:</span> {org.plan}</p>
         </CardContent>
       </Card>
-      <Card className="bg-zinc-900/80 border-zinc-800">
+      <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="font-heading">Users</CardTitle>
         </CardHeader>

@@ -34,7 +34,7 @@ export function ActionablesBoard() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {(["pending", "in_progress", "done"] as const).map((status) => (
-        <Card key={status} className="bg-zinc-900/80 border-zinc-800">
+        <Card key={status} className="bg-card border-border">
           <CardContent className="p-4">
             <h2 className="font-heading font-medium mb-3 capitalize">
               {status.replace("_", " ")}
@@ -46,7 +46,7 @@ export function ActionablesBoard() {
                 byStatus[status].map((a) => (
                   <div
                     key={a.id}
-                    className="rounded-lg border border-zinc-800 p-3 text-sm"
+                    className="rounded-lg border border-border p-3 text-sm"
                   >
                     <p className="font-medium">{a.title}</p>
                     <div className="flex flex-wrap gap-1 mt-1">
@@ -63,7 +63,7 @@ export function ActionablesBoard() {
                 ))
               )}
             </div>
-            <Button variant="outline" size="sm" className="mt-3 w-full border-zinc-700">
+            <Button variant="outline" size="sm" className="mt-3 w-full border-border">
               New
             </Button>
           </CardContent>

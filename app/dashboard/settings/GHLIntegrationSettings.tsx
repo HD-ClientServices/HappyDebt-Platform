@@ -137,7 +137,7 @@ export function GHLIntegrationSettings() {
 
   if (isLoading) {
     return (
-      <Card className="bg-zinc-900/80 border-zinc-800">
+      <Card className="bg-card border-border">
         <CardContent className="py-8 text-center text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mx-auto" />
         </CardContent>
@@ -149,11 +149,11 @@ export function GHLIntegrationSettings() {
   const migrationPending = org?.migration_pending === true;
 
   return (
-    <Card className="bg-zinc-900/80 border-zinc-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Plug2 className="h-5 w-5 text-emerald-500" />
+            <Plug2 className="h-5 w-5 text-success" />
             <div>
               <CardTitle className="font-heading">
                 Go High Level Integration
@@ -167,7 +167,7 @@ export function GHLIntegrationSettings() {
             variant={isConnected ? "default" : "outline"}
             className={
               isConnected
-                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
+                ? "bg-[var(--color-success-subtle)] text-success border-success/30"
                 : ""
             }
           >
@@ -186,7 +186,7 @@ export function GHLIntegrationSettings() {
               </p>
               <p className="text-muted-foreground mt-1">
                 Run{" "}
-                <code className="bg-zinc-800 px-1.5 py-0.5 rounded text-xs">
+                <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
                   supabase/migrations/00004_call_pipeline.sql
                 </code>{" "}
                 in your Supabase SQL Editor to enable GHL settings storage.
@@ -205,7 +205,7 @@ export function GHLIntegrationSettings() {
               placeholder="pit-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              className="bg-zinc-800 border-zinc-700 font-mono text-sm"
+              className="bg-muted border-border font-mono text-sm"
             />
           </div>
           <div className="space-y-2">
@@ -215,7 +215,7 @@ export function GHLIntegrationSettings() {
               placeholder="XXXXXXXXXXXXXXXX"
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
-              className="bg-zinc-800 border-zinc-700 font-mono text-sm"
+              className="bg-muted border-border font-mono text-sm"
             />
           </div>
         </div>
@@ -225,7 +225,7 @@ export function GHLIntegrationSettings() {
           <Button
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending || !token || !locationId}
-            className="bg-emerald-600 hover:bg-emerald-700"
+            className="bg-primary hover:bg-primary/90"
           >
             {saveMutation.isPending && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -237,14 +237,14 @@ export function GHLIntegrationSettings() {
             variant="outline"
             onClick={handleTestConnection}
             disabled={testStatus === "loading"}
-            className="border-zinc-700"
+            className="border-border"
           >
             {testStatus === "loading" ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : testStatus === "success" ? (
-              <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-500" />
+              <CheckCircle2 className="mr-2 h-4 w-4 text-success" />
             ) : testStatus === "error" ? (
-              <XCircle className="mr-2 h-4 w-4 text-red-500" />
+              <XCircle className="mr-2 h-4 w-4 text-destructive" />
             ) : null}
             Test Connection
           </Button>
@@ -253,7 +253,7 @@ export function GHLIntegrationSettings() {
             variant="outline"
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending || !isConnected}
-            className="border-zinc-700"
+            className="border-border"
           >
             {syncMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -268,14 +268,14 @@ export function GHLIntegrationSettings() {
         {testMessage && (
           <p
             className={`text-sm ${
-              testStatus === "success" ? "text-emerald-500" : "text-red-400"
+              testStatus === "success" ? "text-success" : "text-destructive"
             }`}
           >
             {testMessage}
           </p>
         )}
         {saveMutation.isError && (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-destructive">
             Save failed:{" "}
             {saveMutation.error instanceof Error
               ? saveMutation.error.message
@@ -283,10 +283,10 @@ export function GHLIntegrationSettings() {
           </p>
         )}
         {saveMutation.isSuccess && (
-          <p className="text-sm text-emerald-500">Credentials saved!</p>
+          <p className="text-sm text-success">Credentials saved!</p>
         )}
         {syncMutation.isSuccess && (
-          <div className="text-sm text-emerald-500 space-y-1">
+          <div className="text-sm text-success space-y-1">
             <p>
               {(syncMutation.data as { message?: string })?.message ?? "Sync complete."}
             </p>
@@ -305,7 +305,7 @@ export function GHLIntegrationSettings() {
           </div>
         )}
         {syncMutation.isError && (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-destructive">
             Sync failed:{" "}
             {syncMutation.error instanceof Error
               ? syncMutation.error.message
@@ -314,9 +314,9 @@ export function GHLIntegrationSettings() {
         )}
 
         {/* Webhook info */}
-        <div className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-4 space-y-2">
-          <p className="text-sm font-medium text-zinc-300">Webhook URL</p>
-          <code className="block text-xs text-muted-foreground bg-zinc-900 rounded px-3 py-2 break-all">
+        <div className="rounded-lg bg-muted/50 border border-border p-4 space-y-2">
+          <p className="text-sm font-medium text-foreground">Webhook URL</p>
+          <code className="block text-xs text-muted-foreground bg-card rounded px-3 py-2 break-all">
             https://your-domain.vercel.app/api/webhooks/ghl-call
           </code>
           <p className="text-xs text-muted-foreground">

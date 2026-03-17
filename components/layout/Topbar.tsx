@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, LogOut } from "lucide-react";
+import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -57,22 +58,23 @@ export function Topbar({ user }: { user: { email?: string; avatar_url?: string }
   };
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-zinc-800 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <Breadcrumbs />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
+        <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
             <Avatar className="h-8 w-8">
               <AvatarImage src={user?.avatar_url} alt="" />
-              <AvatarFallback className="bg-zinc-800 text-xs">
+              <AvatarFallback className="bg-muted text-xs">
                 {(user?.email ?? "U").slice(0, 2).toUpperCase()}
               </AvatarFallback>
             </Avatar>
             <span className="hidden text-sm md:inline">{user?.email}</span>
             <ChevronDown className="h-4 w-4" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 bg-zinc-900 border-zinc-800">
-            <DropdownMenuItem onClick={handleSignOut} className="text-rose-500">
+          <DropdownMenuContent align="end" className="w-56 bg-card border-border">
+            <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
               Sign out
             </DropdownMenuItem>

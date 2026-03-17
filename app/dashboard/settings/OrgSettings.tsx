@@ -28,7 +28,7 @@ export function OrgSettings() {
   }
 
   return (
-    <Card className="bg-zinc-900/80 border-zinc-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="font-heading">Organization</CardTitle>
       </CardHeader>
@@ -37,7 +37,7 @@ export function OrgSettings() {
           <Label>Organization name</Label>
           <Input
             defaultValue={org?.name}
-            className="bg-zinc-800 border-zinc-700 max-w-md"
+            className="bg-muted border-border max-w-md"
             readOnly
           />
         </div>
@@ -53,7 +53,7 @@ export function OrgSettings() {
           <p className="text-sm text-muted-foreground">
             Current plan: {org?.plan ?? "free"}
           </p>
-          <Button variant="outline" size="sm" className="mt-2 border-zinc-700">
+          <Button variant="outline" size="sm" className="mt-2 border-border">
             Upgrade
           </Button>
         </div>

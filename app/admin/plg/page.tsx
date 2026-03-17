@@ -14,7 +14,7 @@ export default async function PLGPage() {
     <div className="space-y-6">
       <h1 className="font-heading text-2xl font-semibold">PLG Dashboard</h1>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Card className="bg-zinc-900/80 border-zinc-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="font-heading text-lg">Organizations</CardTitle>
           </CardHeader>
@@ -22,7 +22,7 @@ export default async function PLGPage() {
             <p className="text-2xl font-bold">{orgsCount ?? 0}</p>
           </CardContent>
         </Card>
-        <Card className="bg-zinc-900/80 border-zinc-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="font-heading text-lg">PLG events</CardTitle>
           </CardHeader>

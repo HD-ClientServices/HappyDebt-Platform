@@ -22,6 +22,9 @@ export default async function AdminLayout({
   return (
     <div className="min-h-screen bg-background p-6">
       <nav className="mb-6 flex gap-4">
+        <a href="/admin/design-system" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+          Design System
+        </a>
         <a href="/admin/plg" className="text-sm font-medium text-muted-foreground hover:text-foreground">
           PLG
         </a>

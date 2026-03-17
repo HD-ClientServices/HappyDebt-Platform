@@ -52,7 +52,7 @@ export function CloserDetail({ closerId, initialCloser }: CloserDetailProps) {
       <div className="flex items-center gap-4">
         <Avatar className="h-14 w-14">
           <AvatarImage src={initialCloser.avatar_url} />
-          <AvatarFallback className="bg-zinc-700 text-lg">
+          <AvatarFallback className="bg-muted text-lg">
             {initialCloser.name.slice(0, 2).toUpperCase()}
           </AvatarFallback>
         </Avatar>
@@ -74,7 +74,7 @@ export function CloserDetail({ closerId, initialCloser }: CloserDetailProps) {
           value={stats.avgSentiment ? stats.avgSentiment.toFixed(2) : "—"}
         />
       </div>
-      <Card className="bg-zinc-900/80 border-zinc-800">
+      <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="font-heading">Call history</CardTitle>
         </CardHeader>
@@ -86,7 +86,7 @@ export function CloserDetail({ closerId, initialCloser }: CloserDetailProps) {
           ) : (
             <Table>
               <TableHeader>
-                <TableRow className="border-zinc-800">
+                <TableRow className="border-border">
                   <TableHead>Date</TableHead>
                   <TableHead>Score</TableHead>
                   <TableHead>Sentiment</TableHead>
@@ -96,7 +96,7 @@ export function CloserDetail({ closerId, initialCloser }: CloserDetailProps) {
               </TableHeader>
               <TableBody>
                 {calls!.map((row) => (
-                  <TableRow key={row.id} className="border-zinc-800">
+                  <TableRow key={row.id} className="border-border">
                     <TableCell className="text-muted-foreground">
                       {new Date(row.call_date).toLocaleDateString("es-CL", {
                         timeZone: "America/Santiago",

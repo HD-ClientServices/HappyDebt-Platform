@@ -46,38 +46,38 @@ export function SentimentChart() {
   const chartData = data?.length ? data : [{ date: "", sentiment: 0 }];
 
   return (
-    <Card className="bg-zinc-900/80 border-zinc-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="font-heading text-lg">Sentiment over time</CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
             <XAxis
               dataKey="date"
-              stroke="#71717a"
-              tick={{ fill: "#a1a1aa", fontSize: 12 }}
+              stroke="var(--color-muted-foreground)"
+              tick={{ fill: "var(--color-muted-foreground)", fontSize: 12 }}
               tickFormatter={(v) => (v ? v.slice(5) : v)}
             />
             <YAxis
               domain={[-1, 1]}
-              stroke="#71717a"
-              tick={{ fill: "#a1a1aa", fontSize: 12 }}
+              stroke="var(--color-muted-foreground)"
+              tick={{ fill: "var(--color-muted-foreground)", fontSize: 12 }}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#27272a",
-                border: "1px solid #3f3f46",
+                backgroundColor: "var(--color-card)",
+                border: "1px solid var(--color-border)",
                 borderRadius: "0.5rem",
               }}
             />
             <Line
               type="monotone"
               dataKey="sentiment"
-              stroke="#10b981"
+              stroke="var(--color-success)"
               strokeWidth={2}
-              dot={{ fill: "#10b981" }}
+              dot={{ fill: "var(--color-success)" }}
             />
           </LineChart>
         </ResponsiveContainer>

@@ -33,7 +33,7 @@ const scoreBadge = (score: string) => {
   const s = score?.toLowerCase() || "";
   if (s.includes("good"))
     return (
-      <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30">
+      <Badge className="bg-[var(--color-success-subtle)] text-success border-success/30">
         <CheckCircle2 className="mr-1 h-3 w-3" /> Good
       </Badge>
     );
@@ -44,7 +44,7 @@ const scoreBadge = (score: string) => {
       </Badge>
     );
   return (
-    <Badge className="bg-red-500/10 text-red-500 border-red-500/30">
+    <Badge className="bg-[var(--color-danger-subtle)] text-destructive border-destructive/30">
       <XCircle className="mr-1 h-3 w-3" /> Missed
     </Badge>
   );
@@ -54,7 +54,7 @@ const overallBadge = (score: number | null) => {
   if (score == null) return null;
   if (score >= 70)
     return (
-      <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 text-lg px-3 py-1">
+      <Badge className="bg-[var(--color-success-subtle)] text-success border-success/30 text-lg px-3 py-1">
         {score.toFixed(0)}
       </Badge>
     );
@@ -65,7 +65,7 @@ const overallBadge = (score: number | null) => {
       </Badge>
     );
   return (
-    <Badge className="bg-red-500/10 text-red-500 border-red-500/30 text-lg px-3 py-1">
+    <Badge className="bg-[var(--color-danger-subtle)] text-destructive border-destructive/30 text-lg px-3 py-1">
       {score.toFixed(0)}
     </Badge>
   );
@@ -92,7 +92,7 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl max-h-[90vh]">
+      <DialogContent className="bg-card border-border max-w-3xl max-h-[90vh]">
         <DialogHeader>
           <DialogTitle className="font-heading text-xl">
             Call Analysis
@@ -114,7 +114,7 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
               <div className="flex flex-wrap items-center gap-4">
                 {overallBadge(call.evaluation_score)}
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm text-zinc-300">
+                  <div className="flex items-center gap-2 text-sm text-foreground">
                     <User className="h-4 w-4" />
                     {call.contact_name || "Unknown Contact"}
                   </div>
@@ -144,9 +144,9 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
                     )}
                   </div>
                 </div>
-                <div className="ml-auto text-sm text-zinc-400">
+                <div className="ml-auto text-sm text-muted-foreground">
                   Closer:{" "}
-                  <span className="text-zinc-200">
+                  <span className="text-foreground">
                     {(call.closers as { name?: string })?.name || "—"}
                   </span>
                 </div>
@@ -155,15 +155,15 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
               {/* Sentiment */}
               {call.sentiment_score != null && (
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-zinc-400">Sentiment:</span>
+                  <span className="text-sm text-muted-foreground">Sentiment:</span>
                   <Badge
                     variant="outline"
                     className={
                       call.sentiment_score > 0
-                        ? "border-emerald-500/30 text-emerald-400"
+                        ? "border-success/30 text-success"
                         : call.sentiment_score < 0
-                        ? "border-red-500/30 text-red-400"
-                        : "border-zinc-500/30 text-zinc-400"
+                        ? "border-destructive/30 text-destructive"
+                        : "border-border text-muted-foreground"
                     }
                   >
                     {call.sentiment_score > 0 ? "+" : ""}
@@ -184,7 +184,7 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
               {/* QA Criteria */}
               {call.criteria_scores && (
                 <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-zinc-200">
+                  <h3 className="text-sm font-semibold text-foreground">
                     QA Criteria (5-point evaluation)
                   </h3>
                   <div className="grid gap-2">
@@ -193,9 +193,9 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
                     ).map(([criterion, score]) => (
                       <div
                         key={criterion}
-                        className="flex items-center justify-between rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-3"
+                        className="flex items-center justify-between rounded-lg bg-muted/50 border border-border p-3"
                       >
-                        <span className="text-sm text-zinc-300">
+                        <span className="text-sm text-foreground">
                           {criterion}
                         </span>
                         {scoreBadge(score)}
@@ -208,13 +208,13 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
               {/* Strengths & Improvements */}
               <div className="grid gap-4 md:grid-cols-2">
                 {call.strengths && (call.strengths as string[]).length > 0 && (
-                  <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4 space-y-2">
-                    <h4 className="text-sm font-semibold text-emerald-400">
+                  <div className="rounded-lg bg-[var(--color-success-subtle)] border border-success/20 p-4 space-y-2">
+                    <h4 className="text-sm font-semibold text-success">
                       Strengths
                     </h4>
                     <ul className="space-y-1">
                       {(call.strengths as string[]).map((s, i) => (
-                        <li key={i} className="text-sm text-zinc-300">
+                        <li key={i} className="text-sm text-foreground">
                           • {s}
                         </li>
                       ))}
@@ -229,7 +229,7 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
                       </h4>
                       <ul className="space-y-1">
                         {(call.improvement_areas as string[]).map((s, i) => (
-                          <li key={i} className="text-sm text-zinc-300">
+                          <li key={i} className="text-sm text-foreground">
                             • {s}
                           </li>
                         ))}
@@ -240,11 +240,11 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
 
               {/* Action Plan */}
               {call.critical_action_plan && (
-                <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-4 space-y-2">
-                  <h4 className="text-sm font-semibold text-red-400">
+                <div className="rounded-lg bg-[var(--color-danger-subtle)] border border-destructive/20 p-4 space-y-2">
+                  <h4 className="text-sm font-semibold text-destructive">
                     Action Plan
                   </h4>
-                  <p className="text-sm text-zinc-300 whitespace-pre-line">
+                  <p className="text-sm text-foreground whitespace-pre-line">
                     {call.critical_action_plan}
                   </p>
                 </div>
@@ -253,11 +253,11 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
               {/* Transcript */}
               {call.transcript && (
                 <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-zinc-200">
+                  <h3 className="text-sm font-semibold text-foreground">
                     Transcript
                   </h3>
-                  <div className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-4 max-h-64 overflow-y-auto">
-                    <p className="text-sm text-zinc-300 whitespace-pre-line leading-relaxed">
+                  <div className="rounded-lg bg-muted/50 border border-border p-4 max-h-64 overflow-y-auto">
+                    <p className="text-sm text-foreground whitespace-pre-line leading-relaxed">
                       {call.transcript}
                     </p>
                   </div>

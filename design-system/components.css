@@ -1,0 +1,354 @@
+/* ============================================================
+   INTRO DESIGN SYSTEM — COMPONENTS
+   All component styles use tokens from tokens.css.
+   No hardcoded hex values — every color is a CSS variable.
+   ============================================================ */
+
+
+/* ─── RESET & BASE ────────────────────────────────────────── */
+/* Reset is handled by Tailwind Preflight when used in the app. */
+/* These rules only apply when components.css is used standalone */
+/* (e.g., in the design-system/index.html reference page).      */
+@layer ds-base {
+  html {
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+    transition: background-color var(--transition-base),
+                color var(--transition-base);
+  }
+}
+
+
+/* ─── NAVIGATION SIDEBAR ─────────────────────────────────── */
+.nav-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  min-height: 100vh;
+  padding: var(--space-4) 0;
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+}
+
+/* Logo lockup at top of sidebar */
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.nav-logo svg {
+  width: 32px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.nav-logo-text {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--color-text-primary);
+}
+
+/* Sidebar navigation items */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-left: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.nav-item:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-elevated);
+}
+
+/* Active state: gold left border + subtle gold background */
+.nav-item.active {
+  border-left-color: var(--color-gold);
+  background-color: var(--color-gold-subtle);
+  color: var(--color-text-primary);
+}
+
+
+/* ─── CARDS ───────────────────────────────────────────────── */
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  transition: border-color var(--transition-fast);
+}
+
+.card:hover {
+  border-color: var(--color-text-muted);
+}
+
+/* Accent card — for north-star metrics like Closing Rate */
+.card-accent {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-gold-border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.card-accent .card-value {
+  color: var(--color-gold);
+}
+
+/* Card internals */
+.card-label {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 300;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.card-value {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.card-subtitle {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  margin-top: var(--space-1);
+}
+
+
+/* ─── BUTTONS ─────────────────────────────────────────────── */
+
+/* Primary: gold bg + dark text */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  background-color: var(--color-gold);
+  color: var(--color-accent-text);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.btn-primary:hover {
+  opacity: 0.88;
+}
+
+/* Secondary: surface bg + elevated border */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 13px;
+  border: 1px solid var(--color-elevated);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-text-muted);
+}
+
+/* Ghost: transparent, subtle hover */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 13px;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.btn-ghost:hover {
+  color: var(--color-text-primary);
+}
+
+/* Small button modifier */
+.btn-sm {
+  padding: var(--space-1) var(--space-3);
+  font-size: 11px;
+}
+
+
+/* ─── TAGS / BADGES ───────────────────────────────────────── */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  background-color: var(--color-gold-subtle);
+  color: var(--color-gold);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+}
+
+/* Light mode: use gold-dark for legibility */
+[data-theme="light"] .tag {
+  color: var(--color-gold-dark);
+}
+
+/* Neutral tag variant */
+.tag-neutral {
+  background-color: var(--color-elevated);
+  color: var(--color-text-secondary);
+}
+
+
+/* ─── TABLES ──────────────────────────────────────────────── */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Header: uppercase, muted, tiny text */
+.table th {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 300;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.table td {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-text-primary);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+/* Subtle row hover */
+.table tbody tr:hover {
+  background-color: var(--color-elevated);
+}
+
+
+/* ─── INPUTS ──────────────────────────────────────────────── */
+.input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.input:focus {
+  border-color: var(--color-gold);
+}
+
+/* Input label */
+.input-label {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 300;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+
+/* ─── DIVIDERS ────────────────────────────────────────────── */
+.divider {
+  border: none;
+  border-top: 1px solid var(--color-divider);
+  margin: var(--space-4) 0;
+}
+
+
+/* ─── THEME TOGGLE ────────────────────────────────────────── */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background-color: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 400;
+  transition: color var(--transition-fast);
+}
+
+.theme-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.theme-toggle-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+
+/* ─── UTILITY HELPERS ─────────────────────────────────────── */
+.bg-surface   { background-color: var(--color-surface); }
+.bg-elevated  { background-color: var(--color-elevated); }
+.bg-gold-subtle { background-color: var(--color-gold-subtle); }
+.border       { border: 1px solid var(--color-border); }
+.border-gold  { border: 1px solid var(--color-gold-border); }
+.rounded-sm   { border-radius: var(--radius-sm); }
+.rounded-md   { border-radius: var(--radius-md); }
+.rounded-lg   { border-radius: var(--radius-lg); }
+.rounded-xl   { border-radius: var(--radius-xl); }

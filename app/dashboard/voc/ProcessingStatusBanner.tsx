@@ -66,14 +66,14 @@ export function ProcessingStatusBanner() {
   if (activeCount === 0 && failedJobs.length === 0) return null;
 
   return (
-    <Card className="bg-zinc-900/80 border-zinc-800">
+    <Card className="bg-card border-border">
       <CardContent className="py-4">
         <div className="flex flex-wrap items-center gap-4">
           {/* Active processing */}
           {activeCount > 0 && (
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-              <span className="text-sm text-zinc-300">
+              <span className="text-sm text-foreground">
                 Processing {activeCount} call{activeCount !== 1 ? "s" : ""}…
               </span>
               <Badge
@@ -97,8 +97,8 @@ export function ProcessingStatusBanner() {
           {/* Completed count */}
           {summary.completed > 0 && (
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              <span className="text-sm text-zinc-400">
+              <CheckCircle2 className="h-4 w-4 text-success" />
+              <span className="text-sm text-muted-foreground">
                 {summary.completed} completed
               </span>
             </div>

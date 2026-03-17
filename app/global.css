@@ -1,19 +1,97 @@
+/* ============================================================
+   INTRO DESIGN SYSTEM — GLOBAL ENTRY POINT
+   Imports the design system tokens as the single source of truth,
+   then bridges them to shadcn/Tailwind CSS variable names.
+   ============================================================ */
+
+@import '../design-system/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #121212;
-  --border: #27272a;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
-  --primary: #7c3aed;
-  /* HappyDebt Purple adapted for dark mode */
-  --primary-foreground: #ffffff;
+
+/* ─── BRIDGE: intro tokens → shadcn/Tailwind variable names ── */
+/* This mapping ensures every shadcn component (bg-primary,      */
+/* text-muted-foreground, etc.) resolves to intro design tokens. */
+/* Change a value in tokens.css → cascades everywhere.           */
+
+:root,
+[data-theme="dark"] {
+  /* Backgrounds */
+  --background:           var(--color-bg);
+  --foreground:           var(--color-text-primary);
+  --card:                 var(--color-surface);
+  --card-foreground:      var(--color-text-primary);
+  --popover:              var(--color-surface);
+  --popover-foreground:   var(--color-text-primary);
+
+  /* Brand accent */
+  --primary:              var(--color-gold);
+  --primary-foreground:   var(--color-accent-text);
+
+  /* Secondary */
+  --secondary:            var(--color-elevated);
+  --secondary-foreground: var(--color-text-primary);
+
+  /* Muted */
+  --muted:                var(--color-elevated);
+  --muted-foreground:     var(--color-text-secondary);
+
+  /* Accent */
+  --accent:               var(--color-gold-subtle);
+  --accent-foreground:    var(--color-text-primary);
+
+  /* Semantic */
+  --destructive:          var(--color-danger);
+  --destructive-foreground: #ffffff;
+  --success:              var(--color-success);
+  --warning:              var(--color-warning);
+
+  /* Borders & inputs */
+  --border:               var(--color-border);
+  --input:                var(--color-border);
+  --ring:                 var(--color-gold);
+
+  /* Radius */
+  --radius:               var(--radius-md);
 }
 
+[data-theme="light"] {
+  /* Same mapping — tokens.css already redefines --color-* for light */
+  --background:           var(--color-bg);
+  --foreground:           var(--color-text-primary);
+  --card:                 var(--color-surface);
+  --card-foreground:      var(--color-text-primary);
+  --popover:              var(--color-surface);
+  --popover-foreground:   var(--color-text-primary);
+
+  --primary:              var(--color-gold);
+  --primary-foreground:   var(--color-accent-text);
+
+  --secondary:            var(--color-elevated);
+  --secondary-foreground: var(--color-text-primary);
+
+  --muted:                var(--color-elevated);
+  --muted-foreground:     var(--color-text-secondary);
+
+  --accent:               var(--color-gold-subtle);
+  --accent-foreground:    var(--color-text-primary);
+
+  --destructive:          var(--color-danger);
+  --destructive-foreground: #ffffff;
+  --success:              var(--color-success);
+  --warning:              var(--color-warning);
+
+  --border:               var(--color-border);
+  --input:                var(--color-border);
+  --ring:                 var(--color-gold);
+
+  --radius:               var(--radius-md);
+}
+
+
+/* ─── BASE STYLES ────────────────────────────────────────────── */
 body {
-  @apply bg-[var(--background)] text-[var(--foreground)] antialiased;
+  @apply bg-background text-foreground antialiased;
 }

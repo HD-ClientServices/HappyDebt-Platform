@@ -18,7 +18,7 @@ export default async function AdminOrgsPage() {
         ) : (
           (orgs ?? []).map((org) => (
             <Link key={org.id} href={`/admin/orgs/${org.id}`}>
-              <Card className="bg-zinc-900/80 border-zinc-800 hover:border-zinc-700 transition-colors">
+              <Card className="bg-card border-border hover:border-border/80 transition-colors">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div>
                     <p className="font-medium">{org.name}</p>

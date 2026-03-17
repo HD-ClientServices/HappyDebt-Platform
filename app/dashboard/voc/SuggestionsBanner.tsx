@@ -40,11 +40,11 @@ export function SuggestionsBanner() {
         return (
           <Card
             key={i}
-            className="bg-zinc-900/80 border-zinc-800 flex flex-col"
+            className="bg-card border-border flex flex-col"
           >
             <CardContent className="p-4 flex-1 flex flex-col">
               <div className="flex items-start gap-2">
-                <Icon className="h-5 w-5 shrink-0 text-emerald-500 mt-0.5" />
+                <Icon className="h-5 w-5 shrink-0 text-success mt-0.5" />
                 <p className="text-sm text-muted-foreground">{s.text}</p>
               </div>
               <div className="mt-auto pt-2 flex justify-end">
