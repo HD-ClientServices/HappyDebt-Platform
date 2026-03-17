@@ -1,7 +1,7 @@
--- HappyDebt Client Portal — Initial schema + RLS
+-- Intro Client Portal — Initial schema + RLS
 -- Run with: supabase db push (or via Dashboard SQL)
 
--- Organizations (MCA companies / clients of HappyDebt)
+-- Organizations (MCA companies / clients of Intro)
 CREATE TABLE organizations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE users (
   email text NOT NULL,
   full_name text,
   avatar_url text,
-  role text DEFAULT 'viewer' CHECK (role IN ('admin', 'manager', 'viewer', 'happydebt_admin')),
+  role text DEFAULT 'viewer' CHECK (role IN ('admin', 'manager', 'viewer', 'intro_admin')),
   last_active_at timestamptz,
   onboarding_completed boolean DEFAULT false,
   created_at timestamptz DEFAULT now()
@@ -181,23 +181,23 @@ AS $$
   SELECT role FROM public.users WHERE id = (SELECT auth.uid());
 $$;
 
-CREATE OR REPLACE FUNCTION public.is_happydebt_admin()
+CREATE OR REPLACE FUNCTION public.is_intro_admin()
   RETURNS boolean
   LANGUAGE sql
   SECURITY DEFINER
   STABLE
 AS $$
-  SELECT (SELECT role FROM public.users WHERE id = (SELECT auth.uid())) = 'happydebt_admin';
+  SELECT (SELECT role FROM public.users WHERE id = (SELECT auth.uid())) = 'intro_admin';
 $$;
 
 -- Restrict execution: revoke from anon, then grant back only to authenticated
 REVOKE EXECUTE ON FUNCTION public.user_org_id() FROM anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.user_role() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.is_happydebt_admin() FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.is_intro_admin() FROM anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.user_org_id() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.user_role() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.is_happydebt_admin() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_intro_admin() TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- RLS Policies (all references updated to public.* functions)
@@ -206,104 +206,104 @@ GRANT EXECUTE ON FUNCTION public.is_happydebt_admin() TO authenticated;
 -- Organizations: users see own org; admin sees all
 CREATE POLICY "Users read own org" ON organizations
   FOR SELECT USING (
-    public.is_happydebt_admin() OR id = public.user_org_id()
+    public.is_intro_admin() OR id = public.user_org_id()
   );
 CREATE POLICY "Admin/manager update own org" ON organizations
   FOR ALL USING (
     (public.user_role() IN ('admin', 'manager') AND id = public.user_org_id())
-    OR public.is_happydebt_admin()
+    OR public.is_intro_admin()
   );
 
 -- Users: users see same-org users; admin manages same-org
 CREATE POLICY "Users read org members" ON users
   FOR SELECT USING (
-    public.is_happydebt_admin() OR org_id = public.user_org_id()
+    public.is_intro_admin() OR org_id = public.user_org_id()
   );
 CREATE POLICY "Admin insert/update/delete org users" ON users
   FOR ALL USING (
-    public.is_happydebt_admin() OR (public.user_role() = 'admin' AND org_id = public.user_org_id())
+    public.is_intro_admin() OR (public.user_role() = 'admin' AND org_id = public.user_org_id())
   );
 
 -- Closers: org-scoped
 CREATE POLICY "Org members read closers" ON closers
   FOR SELECT USING (
-    public.is_happydebt_admin() OR org_id = public.user_org_id()
+    public.is_intro_admin() OR org_id = public.user_org_id()
   );
 CREATE POLICY "Manager+ write closers" ON closers
   FOR ALL USING (
-    public.is_happydebt_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
+    public.is_intro_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
   );
 
 -- Live transfers: org-scoped
 CREATE POLICY "Org members read live_transfers" ON live_transfers
   FOR SELECT USING (
-    public.is_happydebt_admin() OR org_id = public.user_org_id()
+    public.is_intro_admin() OR org_id = public.user_org_id()
   );
 CREATE POLICY "Manager+ write live_transfers" ON live_transfers
   FOR ALL USING (
-    public.is_happydebt_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
+    public.is_intro_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
   );
 
 -- Call recordings: org-scoped
 CREATE POLICY "Org members read call_recordings" ON call_recordings
   FOR SELECT USING (
-    public.is_happydebt_admin() OR org_id = public.user_org_id()
+    public.is_intro_admin() OR org_id = public.user_org_id()
   );
 CREATE POLICY "Manager+ write call_recordings" ON call_recordings
   FOR ALL USING (
-    public.is_happydebt_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
+    public.is_intro_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
   );
 
 -- Evaluation templates: org-scoped
 CREATE POLICY "Org members read evaluation_templates" ON evaluation_templates
   FOR SELECT USING (
-    public.is_happydebt_admin() OR org_id = public.user_org_id()
+    public.is_intro_admin() OR org_id = public.user_org_id()
   );
 CREATE POLICY "Manager+ write evaluation_templates" ON evaluation_templates
   FOR ALL USING (
-    public.is_happydebt_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
+    public.is_intro_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
   );
 
 -- Actionables: viewers can CRUD own; manager+ all org
 CREATE POLICY "Org members read actionables" ON actionables
   FOR SELECT USING (
-    public.is_happydebt_admin() OR org_id = public.user_org_id()
+    public.is_intro_admin() OR org_id = public.user_org_id()
   );
 CREATE POLICY "Viewer insert own actionables" ON actionables
   FOR INSERT WITH CHECK (
-    public.is_happydebt_admin() OR (org_id = public.user_org_id() AND user_id = (SELECT auth.uid()))
+    public.is_intro_admin() OR (org_id = public.user_org_id() AND user_id = (SELECT auth.uid()))
   );
 CREATE POLICY "Viewer or manager+ update actionables" ON actionables
   FOR UPDATE USING (
-    public.is_happydebt_admin()
+    public.is_intro_admin()
     OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
     OR (user_id = (SELECT auth.uid()) AND org_id = public.user_org_id())
   );
 CREATE POLICY "Viewer or manager+ delete actionables" ON actionables
   FOR DELETE USING (
-    public.is_happydebt_admin()
+    public.is_intro_admin()
     OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
     OR (user_id = (SELECT auth.uid()) AND org_id = public.user_org_id())
   );
 CREATE POLICY "Manager+ insert any actionable" ON actionables
   FOR INSERT WITH CHECK (
-    public.is_happydebt_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
+    public.is_intro_admin() OR (public.user_role() IN ('admin', 'manager') AND org_id = public.user_org_id())
   );
 
 -- plg_events: org members insert; admin read all
 CREATE POLICY "Org members insert plg_events" ON plg_events
   FOR INSERT WITH CHECK (
-    public.is_happydebt_admin() OR org_id = public.user_org_id()
+    public.is_intro_admin() OR org_id = public.user_org_id()
   );
 CREATE POLICY "Admin read all plg_events" ON plg_events
-  FOR SELECT USING (public.is_happydebt_admin());
+  FOR SELECT USING (public.is_intro_admin());
 CREATE POLICY "Org read own plg_events" ON plg_events
   FOR SELECT USING (org_id = public.user_org_id());
 
 -- feature_usage: org members upsert own; admin read all
 CREATE POLICY "Org members read feature_usage" ON feature_usage
   FOR SELECT USING (
-    public.is_happydebt_admin() OR org_id = public.user_org_id()
+    public.is_intro_admin() OR org_id = public.user_org_id()
   );
 CREATE POLICY "Org members insert feature_usage" ON feature_usage
   FOR INSERT WITH CHECK (org_id = public.user_org_id());

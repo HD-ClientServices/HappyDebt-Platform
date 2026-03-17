@@ -16,7 +16,7 @@ export default async function AdminLayout({
     .select("role")
     .eq("id", user.id)
     .single();
-  if (profile?.role !== "happydebt_admin") {
+  if (profile?.role !== "intro_admin") {
     redirect("/dashboard");
   }
   return (

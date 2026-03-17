@@ -17,7 +17,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "HappyDebt Client Portal",
+  title: "Intro Client Portal",
   description: "MCA call analytics and voice of the customer",
 };
 

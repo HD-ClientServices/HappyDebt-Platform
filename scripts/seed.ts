@@ -1,5 +1,5 @@
 /**
- * Seed script for HappyDebt demo data.
+ * Seed script for Intro demo data.
  * Run with: npx tsx scripts/seed.ts (requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in env)
  *
  * Creates: 1 org "Apex Funding Co.", 5 closers, 80 live transfers, 60 call recordings,
@@ -113,7 +113,7 @@ async function seed() {
   // 4. Create Call Recordings (60 items mapped to transfers)
   console.log("Creating call recordings...");
   const sampleTranscripts = [
-    "Hello, this is John from HappyDebt. How can I help you today?",
+    "Hello, this is John from Intro. How can I help you today?",
     "I understand you are looking for funding. Our rates are very competitive.",
     "This is David. Sadly we can't offer the loan at this time, but we can review in 3 months.",
     "Hey, Maria speaking. I've sent the contract to your email.",

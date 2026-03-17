@@ -19,6 +19,6 @@ export const useUIStore = create<UIState>()(
       actionablesView: "kanban",
       setActionablesView: (v) => set({ actionablesView: v }),
     }),
-    { name: "happydebt-ui" }
+    { name: "intro-ui" }
   )
 );

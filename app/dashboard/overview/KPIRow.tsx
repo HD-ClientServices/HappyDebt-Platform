@@ -3,18 +3,27 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { StatCard } from "@/components/shared/StatCard";
+import { DateRange } from "react-day-picker";
 
-function useOverviewKPIs() {
+interface Props {
+  dateRange: DateRange;
+}
+
+function useOverviewKPIs(dateRange: DateRange) {
   const supabase = createClient();
+  const from = dateRange.from?.toISOString() ?? new Date().toISOString();
+  const to = dateRange.to
+    ? new Date(dateRange.to.getFullYear(), dateRange.to.getMonth(), dateRange.to.getDate(), 23, 59, 59).toISOString()
+    : new Date().toISOString();
+
   return useQuery({
-    queryKey: ["overview-kpis"],
+    queryKey: ["overview-kpis", from, to],
     queryFn: async () => {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const { data: transfers } = await supabase
         .from("live_transfers")
         .select("id, status, closer_id, transfer_date")
-        .gte("transfer_date", startOfMonth);
+        .gte("transfer_date", from)
+        .lte("transfer_date", to);
       const total = transfers?.length ?? 0;
       const funded = transfers?.filter((t) => t.status === "funded").length ?? 0;
       const rate = total > 0 ? Math.round((funded / total) * 100) : 0;
@@ -31,8 +40,8 @@ function useOverviewKPIs() {
   });
 }
 
-export function KPIRow() {
-  const { data, isLoading } = useOverviewKPIs();
+export function KPIRow({ dateRange }: Props) {
+  const { data, isLoading } = useOverviewKPIs(dateRange);
 
   if (isLoading) {
     return (
@@ -46,8 +55,8 @@ export function KPIRow() {
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <StatCard title="Total Live Transfers (this month)" value={data?.total ?? 0} />
-      <StatCard title="Total Funded (this month)" value={data?.funded ?? 0} />
+      <StatCard title="Total Live Transfers" value={data?.total ?? 0} />
+      <StatCard title="Total Funded" value={data?.funded ?? 0} />
       <StatCard
         title="Transfer-to-Fund Rate"
         value={`${data?.rate ?? 0}%`}

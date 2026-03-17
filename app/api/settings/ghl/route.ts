@@ -34,25 +34,40 @@ export async function GET() {
 
     const admin = createAdminClient();
 
-    // Try fetching with GHL columns (requires migration 00004)
+    // Try fetching with all GHL columns (including pipeline from migration 00006)
     const { data, error } = await admin
       .from("organizations")
-      .select("id, ghl_api_token, ghl_location_id")
+      .select("id, ghl_api_token, ghl_location_id, ghl_opening_pipeline_id")
       .eq("id", orgId)
       .single();
 
     if (error) {
-      // If columns don't exist, migration hasn't been run
+      // If the pipeline column doesn't exist, try without it
       if (
         error.message.includes("column") ||
         error.code === "42703" ||
         error.code === "PGRST204"
       ) {
+        const { data: fallback, error: fallbackErr } = await admin
+          .from("organizations")
+          .select("id, ghl_api_token, ghl_location_id")
+          .eq("id", orgId)
+          .single();
+
+        if (fallbackErr) {
+          // Even basic columns don't exist — migration needed
+          return NextResponse.json({
+            id: orgId,
+            ghl_api_token: null,
+            ghl_location_id: null,
+            ghl_opening_pipeline_id: null,
+            migration_pending: true,
+          });
+        }
+
         return NextResponse.json({
-          id: orgId,
-          ghl_api_token: null,
-          ghl_location_id: null,
-          migration_pending: true,
+          ...fallback,
+          ghl_opening_pipeline_id: null,
         });
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -78,7 +93,7 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json();
-    const { ghl_api_token, ghl_location_id } = body;
+    const { ghl_api_token, ghl_location_id, ghl_opening_pipeline_id } = body;
 
     if (!ghl_api_token || !ghl_location_id) {
       return NextResponse.json(
@@ -87,14 +102,33 @@ export async function PUT(request: Request) {
       );
     }
 
+    const updateData: Record<string, string> = { ghl_api_token, ghl_location_id };
+    if (ghl_opening_pipeline_id !== undefined) {
+      updateData.ghl_opening_pipeline_id = ghl_opening_pipeline_id;
+    }
+
     const admin = createAdminClient();
     const { error } = await admin
       .from("organizations")
-      .update({ ghl_api_token, ghl_location_id })
+      .update(updateData)
       .eq("id", orgId);
 
     if (error) {
-      // Columns don't exist → migration not run
+      // Pipeline column may not exist yet — retry without it
+      if (
+        error.message.includes("column") ||
+        error.code === "42703" ||
+        error.code === "PGRST204"
+      ) {
+        const { error: retryErr } = await admin
+          .from("organizations")
+          .update({ ghl_api_token, ghl_location_id })
+          .eq("id", orgId);
+
+        if (!retryErr) {
+          return NextResponse.json({ success: true });
+        }
+      }
       if (
         error.message.includes("column") ||
         error.code === "42703" ||

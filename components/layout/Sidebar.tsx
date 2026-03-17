@@ -36,7 +36,7 @@ export function Sidebar() {
       <div className="flex h-14 items-center border-b border-zinc-800 px-3">
         {!collapsed && (
           <span className="font-heading font-semibold text-lg text-foreground">
-            HappyDebt
+            Intro
           </span>
         )}
       </div>
