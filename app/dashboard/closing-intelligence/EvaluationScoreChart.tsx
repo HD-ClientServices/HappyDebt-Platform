@@ -14,8 +14,13 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { DrillDownFilter } from "./DrillDownPanel";
 
-export function EvaluationScoreChart() {
+interface EvaluationScoreChartProps {
+  onDrillDown?: (title: string, filter: DrillDownFilter) => void;
+}
+
+export function EvaluationScoreChart({ onDrillDown }: EvaluationScoreChartProps) {
   const supabase = createClient();
   const { data, isLoading } = useQuery({
     queryKey: ["avg-score-by-closer"],
@@ -45,7 +50,7 @@ export function EvaluationScoreChart() {
         const avg = o?.count ? o.sum / o.count : 0;
         totalSum += avg * (o?.count ?? 0);
         totalCount += o?.count ?? 0;
-        return { name: cl.name, score: Math.round(avg * 10) / 10 };
+        return { name: cl.name, closerId: cl.id, score: Math.round(avg * 10) / 10 };
       });
       const avg = totalCount ? totalSum / totalCount : 0;
       return { data, avg };
@@ -82,7 +87,19 @@ export function EvaluationScoreChart() {
               }}
             />
             <ReferenceLine x={orgAvg} stroke="#f59e0b" strokeDasharray="3 3" />
-            <Bar dataKey="score" fill="#10b981" radius={[0, 4, 4, 0]} />
+            <Bar
+              dataKey="score"
+              fill="#10b981"
+              radius={[0, 4, 4, 0]}
+              className="cursor-pointer"
+              onClick={(payload: { closerId?: string; name?: string }) => {
+                if (onDrillDown && payload?.closerId) {
+                  onDrillDown(`Calls by ${payload.name ?? "closer"}`, {
+                    closerId: payload.closerId,
+                  });
+                }
+              }}
+            />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>

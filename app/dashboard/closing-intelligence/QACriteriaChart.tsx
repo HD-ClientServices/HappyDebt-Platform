@@ -14,6 +14,11 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { DrillDownFilter } from "./DrillDownPanel";
+
+interface QACriteriaChartProps {
+  onDrillDown?: (title: string, filter: DrillDownFilter) => void;
+}
 
 const CRITERIA_NAMES = [
   "Industry Explanation",
@@ -30,7 +35,7 @@ interface CriterionData {
   missed: number;
 }
 
-export function QACriteriaChart() {
+export function QACriteriaChart({ onDrillDown }: QACriteriaChartProps) {
   const supabase = createClient();
 
   const { data, isLoading } = useQuery({
@@ -72,6 +77,7 @@ export function QACriteriaChart() {
 
       return Object.entries(agg).map(([name, counts]) => ({
         name: name.length > 20 ? name.slice(0, 18) + "…" : name,
+        fullName: name,
         ...counts,
       }));
     },
@@ -132,9 +138,51 @@ export function QACriteriaChart() {
             <Legend
               wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
             />
-            <Bar dataKey="good" fill="#10b981" name="Good" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="partial" fill="#f59e0b" name="Partial" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="missed" fill="#ef4444" name="Missed" radius={[4, 4, 0, 0]} />
+            <Bar
+              dataKey="good"
+              fill="#10b981"
+              name="Good"
+              radius={[4, 4, 0, 0]}
+              className="cursor-pointer"
+              onClick={(payload: { fullName?: string }) => {
+                if (onDrillDown && payload?.fullName) {
+                  onDrillDown(`${payload.fullName} — Good`, {
+                    criterionName: payload.fullName,
+                    scoreType: "good",
+                  });
+                }
+              }}
+            />
+            <Bar
+              dataKey="partial"
+              fill="#f59e0b"
+              name="Partial"
+              radius={[4, 4, 0, 0]}
+              className="cursor-pointer"
+              onClick={(payload: { fullName?: string }) => {
+                if (onDrillDown && payload?.fullName) {
+                  onDrillDown(`${payload.fullName} — Partial`, {
+                    criterionName: payload.fullName,
+                    scoreType: "partial",
+                  });
+                }
+              }}
+            />
+            <Bar
+              dataKey="missed"
+              fill="#ef4444"
+              name="Missed"
+              radius={[4, 4, 0, 0]}
+              className="cursor-pointer"
+              onClick={(payload: { fullName?: string }) => {
+                if (onDrillDown && payload?.fullName) {
+                  onDrillDown(`${payload.fullName} — Missed`, {
+                    criterionName: payload.fullName,
+                    scoreType: "missed",
+                  });
+                }
+              }}
+            />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>

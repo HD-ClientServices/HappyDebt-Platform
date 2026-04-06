@@ -19,7 +19,12 @@ const DEFAULT_CRITERIA: EvaluationCriteria[] = [
   { name: "Compliance", description: "Follows regulatory requirements", weight: 0.1, max_score: 10 },
 ];
 
-export function EvaluationTemplateEditor() {
+interface EvaluationTemplateEditorProps {
+  userRole?: string;
+}
+
+export function EvaluationTemplateEditor({ userRole }: EvaluationTemplateEditorProps) {
+  const isAdmin = userRole === "admin" || userRole === "happydebt_admin";
   const supabase = createClient();
   const queryClient = useQueryClient();
   const [criteria, setCriteria] = useState<EvaluationCriteria[]>(DEFAULT_CRITERIA);
@@ -93,6 +98,21 @@ export function EvaluationTemplateEditor() {
 
   if (isLoading) {
     return <div className="text-muted-foreground">Loading template…</div>;
+  }
+
+  if (!isAdmin) {
+    return (
+      <Card className="bg-zinc-900/80 border-zinc-800">
+        <CardHeader>
+          <CardTitle className="font-heading">Evaluation template</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Only organization admins can edit evaluation templates.
+          </p>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -169,6 +189,9 @@ export function EvaluationTemplateEditor() {
           <Plus className="mr-2 h-4 w-4" />
           Add criterion
         </Button>
+        <div className="rounded-md border border-amber-600/40 bg-amber-950/30 px-4 py-2 text-sm text-amber-400">
+          Changes will affect scoring for all future call analyses.
+        </div>
         <div className="flex gap-2 pt-4">
           <Button
             onClick={() => saveMutation.mutate()}

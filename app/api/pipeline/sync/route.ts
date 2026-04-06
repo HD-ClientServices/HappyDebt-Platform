@@ -181,6 +181,60 @@ async function syncCalls(
 
   console.log(`[sync] ${newCalls.length} new call(s) after dedup`);
 
+  // ── Resolve or create leads for each call by ghl_contact_id ──────
+  const contactIds = [...new Set(newCalls.map((c) => c.contactId).filter(Boolean))];
+  const leadByContactId = new Map<string, string>();
+
+  if (contactIds.length > 0) {
+    // Fetch existing leads for these contacts in one query
+    const { data: existingLeads } = await adminSupabase
+      .from("leads")
+      .select("id, ghl_contact_id")
+      .eq("org_id", orgId)
+      .in("ghl_contact_id", contactIds);
+
+    for (const lead of existingLeads || []) {
+      if (lead.ghl_contact_id) leadByContactId.set(lead.ghl_contact_id, lead.id);
+    }
+
+    // Create missing leads
+    const missingContactIds = contactIds.filter((cid) => !leadByContactId.has(cid));
+    if (missingContactIds.length > 0) {
+      // Build a lookup from contactId → call info for name/phone
+      const callInfoByContactId = new Map(
+        newCalls.filter((c) => c.contactId).map((c) => [c.contactId, c])
+      );
+
+      const newLeadRows = missingContactIds.map((cid) => {
+        const callInfo = callInfoByContactId.get(cid);
+        return {
+          org_id: orgId,
+          name: callInfo?.contactName || "Unknown",
+          phone: callInfo?.contactPhone || null,
+          source: "ghl_sync" as const,
+          status: "in_sequence" as const,
+          ghl_contact_id: cid,
+        };
+      });
+
+      for (let i = 0; i < newLeadRows.length; i += 50) {
+        const chunk = newLeadRows.slice(i, i + 50);
+        const { data: inserted, error } = await adminSupabase
+          .from("leads")
+          .insert(chunk)
+          .select("id, ghl_contact_id");
+        if (error) {
+          console.error("[sync] Lead creation error:", error.message);
+        } else {
+          for (const lead of inserted || []) {
+            if (lead.ghl_contact_id) leadByContactId.set(lead.ghl_contact_id, lead.id);
+          }
+        }
+      }
+      console.log(`[sync] Created ${missingContactIds.length} new lead(s) for calls`);
+    }
+  }
+
   // Batch insert processing jobs
   const jobIds: string[] = [];
   if (newCalls.length > 0) {
@@ -199,6 +253,7 @@ async function syncCalls(
         conversation_id: call.conversationId,
         direction: call.direction,
         call_date: call.callDate,
+        lead_id: call.contactId ? leadByContactId.get(call.contactId) || null : null,
       },
       attempts: 0,
       max_attempts: 3,
@@ -358,5 +413,78 @@ async function syncOpportunities(
   const transfersSynced = toInsert.length + toUpdate.length;
   console.log(`[sync] Synced ${transfersSynced} transfers (${toInsert.length} new, ${toUpdate.length} updated)`);
 
-  return { transfersSynced, warning: null };
+  // ── Dual-write: upsert into leads table ──────────────────────────
+  let leadsSynced = 0;
+  try {
+    // Fetch existing leads by ghl_opportunity_id for dedup
+    const oppIds = allOpps.map((o) => o.id);
+    const { data: existingLeads } = await adminSupabase
+      .from("leads")
+      .select("id, ghl_opportunity_id")
+      .eq("org_id", orgId)
+      .in("ghl_opportunity_id", oppIds);
+
+    const existingLeadByOppId = new Map(
+      (existingLeads || []).map((l: { ghl_opportunity_id: string; id: string }) => [l.ghl_opportunity_id, l.id])
+    );
+
+    const leadsToInsert = [];
+    const leadsToUpdate: { id: string; data: Record<string, unknown> }[] = [];
+
+    for (const opp of allOpps) {
+      const closerId = opp.assignedTo ? closerMap.get(opp.assignedTo) || null : null;
+
+      const leadData = {
+        org_id: orgId,
+        closer_id: closerId,
+        name: opp.contact?.name || opp.name || "Unknown Lead",
+        phone: opp.contact?.phone || null,
+        email: opp.contact?.email || null,
+        business_name: opp.contact?.companyName || null,
+        source: "ghl_sync" as const,
+        ghl_contact_id: opp.contact?.id || null,
+        ghl_opportunity_id: opp.id,
+        status: "closed_won" as const, // won opps → closed_won in leads
+        amount: opp.monetaryValue || 0,
+        transfer_date: opp.createdAt,
+        closed_date: opp.lastStatusChangeAt || opp.updatedAt || opp.createdAt,
+      };
+
+      const existingLeadId = existingLeadByOppId.get(opp.id);
+      if (existingLeadId) {
+        leadsToUpdate.push({ id: existingLeadId, data: leadData });
+      } else {
+        leadsToInsert.push(leadData);
+      }
+    }
+
+    // Batch insert new leads
+    if (leadsToInsert.length > 0) {
+      for (let i = 0; i < leadsToInsert.length; i += 50) {
+        const chunk = leadsToInsert.slice(i, i + 50);
+        const { error } = await adminSupabase.from("leads").insert(chunk);
+        if (error) console.error("[sync] Batch lead insert error:", error.message);
+      }
+    }
+
+    // Batch update existing leads
+    if (leadsToUpdate.length > 0) {
+      const updateBatchSize = 10;
+      for (let i = 0; i < leadsToUpdate.length; i += updateBatchSize) {
+        const batch = leadsToUpdate.slice(i, i + updateBatchSize);
+        await Promise.all(
+          batch.map((item) =>
+            adminSupabase.from("leads").update(item.data).eq("id", item.id)
+          )
+        );
+      }
+    }
+
+    leadsSynced = leadsToInsert.length + leadsToUpdate.length;
+    console.log(`[sync] Leads dual-write: ${leadsSynced} synced (${leadsToInsert.length} new, ${leadsToUpdate.length} updated)`);
+  } catch (err) {
+    console.error("[sync] Leads dual-write error (non-fatal):", err instanceof Error ? err.message : String(err));
+  }
+
+  return { transfersSynced, leadsSynced, warning: null };
 }

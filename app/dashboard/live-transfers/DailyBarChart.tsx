@@ -19,17 +19,17 @@ const COLORS = ["#10b981", "#f43f5e", "#f59e0b", "#0ea5e9", "#71717a"];
 export function DailyBarChart() {
   const supabase = createClient();
   const { data, isLoading } = useQuery({
-    queryKey: ["live-transfers-daily"],
+    queryKey: ["leads-daily"],
     queryFn: async () => {
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), 1);
       const { data: transfers } = await supabase
-        .from("live_transfers")
-        .select("transfer_date")
-        .gte("transfer_date", start.toISOString());
+        .from("leads")
+        .select("created_at")
+        .gte("created_at", start.toISOString());
       const byDay: Record<string, number> = {};
       (transfers ?? []).forEach((t) => {
-        const d = new Date(t.transfer_date).toISOString().slice(0, 10);
+        const d = new Date(t.created_at).toISOString().slice(0, 10);
         byDay[d] = (byDay[d] ?? 0) + 1;
       });
       const days = Object.entries(byDay).map(([date, count]) => ({ date, count }));
@@ -47,7 +47,7 @@ export function DailyBarChart() {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-4">
       <h2 className="font-heading text-lg font-medium mb-4">
-        Live transfers by day
+        Leads by day
       </h2>
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>

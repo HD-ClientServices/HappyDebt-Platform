@@ -13,8 +13,13 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { DrillDownFilter } from "./DrillDownPanel";
 
-export function SentimentChart() {
+interface SentimentChartProps {
+  onDrillDown?: (title: string, filter: DrillDownFilter) => void;
+}
+
+export function SentimentChart({ onDrillDown }: SentimentChartProps) {
   const supabase = createClient();
   const { data, isLoading } = useQuery({
     queryKey: ["sentiment-by-day"],
@@ -78,6 +83,17 @@ export function SentimentChart() {
               stroke="#10b981"
               strokeWidth={2}
               dot={{ fill: "#10b981" }}
+              activeDot={{
+                r: 6,
+                className: "cursor-pointer",
+                onClick: (_e: unknown, payload: { payload?: { date?: string } }) => {
+                  if (onDrillDown && payload?.payload?.date) {
+                    onDrillDown(`Calls on ${payload.payload.date}`, {
+                      date: payload.payload.date,
+                    });
+                  }
+                },
+              }}
             />
           </LineChart>
         </ResponsiveContainer>

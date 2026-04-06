@@ -57,7 +57,7 @@ export function CloserRankingPanel() {
             <button
               key={c.id}
               type="button"
-              onClick={() => router.push(`/dashboard/voc/${c.id}`)}
+              onClick={() => router.push(`/dashboard/closing-intelligence/${c.id}`)}
               className="w-full flex items-center gap-3 rounded-lg p-2 text-left hover:bg-zinc-800/50 transition-colors"
             >
               <Avatar className="h-9 w-9">

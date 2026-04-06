@@ -1,10 +1,11 @@
 /**
  * Anthropic Claude integration for call QA analysis.
- * Replaces GPT-4o with Claude for better structured analysis.
+ * Supports dynamic evaluation templates per organization.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { QAAnalysisResult } from "@/lib/openai/types";
+import type { EvaluationCriteria } from "@/types/database";
 
 function getAnthropicClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -14,34 +15,79 @@ function getAnthropicClient(): Anthropic {
   return new Anthropic({ apiKey });
 }
 
-/** The QA system prompt — same 5-criteria rubric */
-const QA_SYSTEM_PROMPT = `You are a Call QA Analyst for an MCA debt restructuring company ("Rise Alliance"). The user will paste call transcripts.
+/** Default 5 criteria (Rise Alliance) — used when no template is provided */
+const DEFAULT_CRITERIA: EvaluationCriteria[] = [
+  {
+    name: "3-Level Industry Explanation",
+    description:
+      "Differentiation using the 3-level model: Level 1 (non-proactive providers), Level 2 (proactive but balance-reduction focused), Level 3 (Rise model: cashflow relief via extended term with new written contract).",
+    weight: 0.2,
+    max_score: 100,
+  },
+  {
+    name: "Urgency / Tightening",
+    description:
+      'Push for immediate action: "Why not today?", payment cadence questions, next pull date, partner scheduling with concrete time.',
+    weight: 0.2,
+    max_score: 100,
+  },
+  {
+    name: "Clear CTA / Structured Next Step",
+    description:
+      "Explicit next step with time/date set, clear explanation of what happens next in the process.",
+    weight: 0.2,
+    max_score: 100,
+  },
+  {
+    name: "Confirmation of Email/SMS Received + Contact Lock-in",
+    description:
+      "Ask client to save rep's number, confirm email/SMS/DocuSign received, confirm calendar invite sent/accepted.",
+    weight: 0.2,
+    max_score: 100,
+  },
+  {
+    name: "Intensity Under Resistance",
+    description:
+      "Maintain control and reframe when pushback happens. Stay assertive without being aggressive.",
+    weight: 0.2,
+    max_score: 100,
+  },
+];
+
+/** Build the QA system prompt dynamically from evaluation criteria */
+function buildQAPrompt(criteria: EvaluationCriteria[]): string {
+  const criteriaSection = criteria
+    .map(
+      (c, i) =>
+        `${i + 1}) ${c.name}${c.description ? `\n   Description: ${c.description}` : ""}`
+    )
+    .join("\n");
+
+  const jsonCriteria = criteria
+    .map(
+      (c) =>
+        `    {"name": "${c.name}", "score": "good|partial|missed", "feedback": "..."}`
+    )
+    .join(",\n");
+
+  return `You are a Call QA Analyst for a debt restructuring company. The user will paste call transcripts.
 
 CRITICAL SCOPE RULES:
-- Only analyze the Rise representative(s) (e.g., Zach, Frankie, Kyle, Nick, Trevor, etc.).
-- Do NOT analyze openers/setters like Maria or Camila (they only connect the lead).
-- If the transcript includes both opener + Rise rep, ignore the opener section except for context.
+- Only analyze the company representative(s).
+- Do NOT analyze openers/setters (they only connect the lead).
+- If the transcript includes both opener + rep, ignore the opener section except for context.
 
 OUTPUT LANGUAGE:
 - Always respond in English.
 
 TASK:
-For each call transcript, evaluate ONLY these 5 criteria (do not add new categories):
-1) 3-Level Industry Explanation (Differentiation)
-2) Urgency / Tightening ("Why not today?" + payment cadence)
-3) Clear CTA / Structured Next Step (explicit next step + time/date + what happens next)
-4) Confirmation of Email/SMS Received + Contact Lock-in (save number, confirm email received, confirm invite, etc.)
-5) Intensity Under Resistance (does the rep maintain control and reframe when pushback happens)
-
-IMPORTANT DIFFERENTIATION FRAMEWORK (must use this exact 3-level model; do not mention any other models):
-Level 1 - Non-proactive providers: collect money but are not proactive with funders -> client pays provider while funder still escalates/litigates.
-Level 2 - Proactive providers whose value is "debt savings / balance reduction": they go to funders asking for balance cuts -> funder rejects -> client gets stuck paying provider while funder escalates.
-Level 3 - Rise model: proactive + value is cashflow relief (pay in full over longer term) via a new written contract. The pitch is not "reduce balances," it's "pay everything, but extend term (e.g., 6->12/18 months) so the payment becomes affordable." This is positioned as rational for the funder because default risk + legal/collections costs are rising.
+For each call transcript, evaluate ONLY these ${criteria.length} criteria (do not add new categories):
+${criteriaSection}
 
 REQUIRED FORMAT (no exceptions):
-For each of the 5 criteria, use this structure:
+For each of the ${criteria.length} criteria, use this structure:
 - Client said: (quote 1-3 exact phrases from the CLIENT that show the blocker/concern or decision point)
-- Rep responded: (quote 1-3 exact phrases from the RISE REP that show what they did)
+- Rep responded: (quote 1-3 exact phrases from the REP that show what they did)
 - Feedback: (1) what's wrong/right (2) what they should have said instead (give a better line/script)
 
 CITATIONS RULE:
@@ -49,37 +95,17 @@ CITATIONS RULE:
 - Separate client quotes and rep quotes clearly.
 - Keep quotes short (1-2 sentences each), but precise.
 
-URGENCY/TIGHTENING REQUIREMENTS:
-Whenever the lead wants to delay ("tomorrow", "later", "I'll talk to my partner"), the rep should push:
-- "Why not today?"
-- "What day/time are your payments drafted? Daily/weekly?"
-- "When is the next pull?"
-- "If we do tomorrow, will your partner definitely attend?"
-- "What's your partner's email so I can send a calendar invite right now?"
-Your feedback MUST include an example line like the above if urgency is missing.
-
-CONTACT LOCK-IN REQUIREMENTS:
-If the rep does NOT do these, flag it:
-- Ask the client to save the rep's number.
-- Confirm the email/SMS/DocuSign was received before hanging up.
-- Confirm calendar invite sent/accepted (if a meeting is set).
-Your feedback MUST include a corrected line/script to fix it.
-
 SCORING:
 At the end, provide a JSON block between <json> and </json> tags with this exact structure:
 <json>
 {
   "criteria": [
-    {"name": "3-Level Industry Explanation", "score": "good|partial|missed", "feedback": "..."},
-    {"name": "Urgency / Tightening", "score": "good|partial|missed", "feedback": "..."},
-    {"name": "Clear CTA / Structured Next Step", "score": "good|partial|missed", "feedback": "..."},
-    {"name": "Confirmation of Email/SMS Received + Contact Lock-in", "score": "good|partial|missed", "feedback": "..."},
-    {"name": "Intensity Under Resistance", "score": "good|partial|missed", "feedback": "..."}
+${jsonCriteria}
   ]
 }
 </json>
 
-Also provide a plain text "Final tally (5-point scoring):" section after the JSON.
+Also provide a plain text "Final tally (${criteria.length}-point scoring):" section after the JSON.
 For each criterion mark one of: Good / Partial / Missed.
 Then provide: "Total issues:" count how many are Missed + how many are Partial.
 
@@ -88,15 +114,21 @@ STYLE:
 - Do not praise the opener.
 - Do not add legal advice beyond what's in the call.
 - Do not invent facts not present in the transcript.`;
+}
 
-/** Analyze a call transcript with Claude */
-export async function analyzeCallQA(transcript: string): Promise<QAAnalysisResult> {
+/** Analyze a call transcript with Claude, optionally using org-specific criteria */
+export async function analyzeCallQA(
+  transcript: string,
+  criteria?: EvaluationCriteria[]
+): Promise<QAAnalysisResult> {
   const client = getAnthropicClient();
+  const activeCriteria = criteria && criteria.length > 0 ? criteria : DEFAULT_CRITERIA;
+  const systemPrompt = buildQAPrompt(activeCriteria);
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 4096,
-    system: QA_SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: [{ role: "user", content: transcript }],
   });
 
@@ -111,7 +143,8 @@ export async function analyzeCallQA(transcript: string): Promise<QAAnalysisResul
 
   // Try to parse structured JSON from <json> tags
   const jsonMatch = rawAnalysis.match(/<json>([\s\S]*?)<\/json>/);
-  let parsedCriteria: Array<{ name: string; score: string; feedback: string }> = [];
+  let parsedCriteria: Array<{ name: string; score: string; feedback: string }> =
+    [];
 
   if (jsonMatch) {
     try {
@@ -122,7 +155,7 @@ export async function analyzeCallQA(transcript: string): Promise<QAAnalysisResul
     }
   }
 
-  // Parse scoring from the raw analysis (fallback or validation)
+  // Count scores from parsed criteria or regex fallback
   const goodCount =
     parsedCriteria.filter((c) => c.score === "good").length ||
     (rawAnalysis.match(/:\s*Good/gi) || []).length;
@@ -149,24 +182,16 @@ export async function analyzeCallQA(transcript: string): Promise<QAAnalysisResul
     overall = "yellow";
   }
 
-  // Build criteria results
-  const criteriaNames = [
-    "3-Level Industry Explanation",
-    "Urgency / Tightening",
-    "Clear CTA / Structured Next Step",
-    "Confirmation of Email/SMS Received + Contact Lock-in",
-    "Intensity Under Resistance",
-  ];
-
-  const criteria = criteriaNames.map((name) => {
-    // Try from parsed JSON first
-    const parsed = parsedCriteria.find(
-      (c) => c.name.toLowerCase().includes(name.toLowerCase().slice(0, 15))
+  // Build criteria results dynamically from the active criteria
+  const criteriaResults = activeCriteria.map((criterion) => {
+    // Try from parsed JSON first (fuzzy match on name prefix)
+    const parsed = parsedCriteria.find((c) =>
+      c.name.toLowerCase().includes(criterion.name.toLowerCase().slice(0, 15))
     );
 
     if (parsed) {
       return {
-        name,
+        name: criterion.name,
         score: parsed.score as "good" | "partial" | "missed",
         client_quotes: [] as string[],
         rep_quotes: [] as string[],
@@ -176,7 +201,7 @@ export async function analyzeCallQA(transcript: string): Promise<QAAnalysisResul
 
     // Fallback to regex
     const scorePattern = new RegExp(
-      `${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\\n]*?(Good|Partial|Missed)`,
+      `${criterion.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\\n]*?(Good|Partial|Missed)`,
       "i"
     );
     const match = rawAnalysis.match(scorePattern);
@@ -185,7 +210,7 @@ export async function analyzeCallQA(transcript: string): Promise<QAAnalysisResul
       : "missed";
 
     return {
-      name,
+      name: criterion.name,
       score,
       client_quotes: [],
       rep_quotes: [],
@@ -194,7 +219,7 @@ export async function analyzeCallQA(transcript: string): Promise<QAAnalysisResul
   });
 
   return {
-    criteria,
+    criteria: criteriaResults,
     overall,
     good_count: goodCount,
     partial_count: partialCount,
@@ -202,4 +227,30 @@ export async function analyzeCallQA(transcript: string): Promise<QAAnalysisResul
     total_issues: totalIssues,
     raw_analysis: rawAnalysis,
   };
+}
+
+/**
+ * Compute a weighted evaluation score from QA results and template criteria.
+ * Returns a score 0-100.
+ */
+export function computeWeightedScore(
+  criteriaResults: Array<{ score: string }>,
+  templateCriteria?: EvaluationCriteria[]
+): number {
+  if (criteriaResults.length === 0) return 0;
+
+  const weights = templateCriteria && templateCriteria.length === criteriaResults.length
+    ? templateCriteria.map((c) => c.weight)
+    : criteriaResults.map(() => 1 / criteriaResults.length);
+
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
+  let weightedScore = 0;
+  for (let i = 0; i < criteriaResults.length; i++) {
+    const score = criteriaResults[i].score;
+    const points = score === "good" ? 100 : score === "partial" ? 50 : 0;
+    weightedScore += points * (weights[i] / totalWeight);
+  }
+
+  return Math.round(weightedScore);
 }

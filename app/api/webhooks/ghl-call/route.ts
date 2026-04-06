@@ -69,6 +69,37 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Resolve or create lead by ghl_contact_id ────────────────────
+    let leadId: string | null = null;
+    if (payload.contact_id) {
+      const { data: existingLead } = await supabase
+        .from("leads")
+        .select("id")
+        .eq("org_id", orgId)
+        .eq("ghl_contact_id", payload.contact_id)
+        .maybeSingle();
+
+      if (existingLead) {
+        leadId = existingLead.id;
+      } else {
+        // Create a new lead for this contact
+        const { data: newLead } = await supabase
+          .from("leads")
+          .insert({
+            org_id: orgId,
+            name: payload.contact_name || "Unknown",
+            phone: payload.contact_phone || null,
+            source: "ghl_sync",
+            status: "in_sequence",
+            ghl_contact_id: payload.contact_id,
+            closer_id: closerId,
+          })
+          .select("id")
+          .single();
+        leadId = newLead?.id || null;
+      }
+    }
+
     // Insert processing job
     const { data: job, error: jobError } = await supabase
       .from("processing_jobs")
@@ -79,6 +110,7 @@ export async function POST(req: NextRequest) {
         payload: {
           ...payload,
           closer_id: closerId,
+          lead_id: leadId,
           ghl_token: process.env.GHL_API_TOKEN,
           ghl_location_id: ghlLocationId,
         },

@@ -17,7 +17,14 @@ export default async function AdminLayout({
     .select("role")
     .eq("id", user.id)
     .single();
-  if (profile?.role !== "happydebt_admin") {
+
+  const email = user.email ?? "";
+  const isAdmin =
+    profile?.role === "happydebt_admin" ||
+    email.endsWith("@happydebt.com") ||
+    email.endsWith("@tryintro.com");
+
+  if (!isAdmin) {
     redirect("/dashboard");
   }
   return (

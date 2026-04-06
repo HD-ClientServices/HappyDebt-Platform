@@ -6,6 +6,8 @@ export type LiveTransferStatus =
   | "funded"
   | "declined"
   | "no_answer";
+export type LeadSource = "happydebt" | "client_upload" | "ghl_sync";
+export type LeadStatus = "in_sequence" | "transferred" | "closed_won";
 export type ActionableSourceType =
   | "call_review"
   | "closer_profile"
@@ -74,6 +76,31 @@ export interface LiveTransfer {
   created_at: string;
 }
 
+export interface Lead {
+  id: string;
+  org_id: string;
+  closer_id: string | null;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  business_name: string | null;
+  source: LeadSource;
+  ghl_contact_id: string | null;
+  ghl_opportunity_id: string | null;
+  status: LeadStatus;
+  amount: number | null;
+  transfer_date: string | null;
+  closed_date: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeadWithCalls extends Lead {
+  call_recordings: CallRecording[];
+  closer?: Closer;
+}
+
 export interface EvaluationCriteria {
   name: string;
   description: string;
@@ -86,6 +113,8 @@ export interface CallRecording {
   org_id: string;
   closer_id: string;
   live_transfer_id: string | null;
+  lead_id: string | null;
+  evaluation_template_id: string | null;
   recording_url: string;
   duration_seconds: number | null;
   call_date: string;

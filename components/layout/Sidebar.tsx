@@ -5,26 +5,37 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/store/ui-store";
 import {
+  Users,
   LayoutDashboard,
-  Mic,
+  Brain,
   ListTodo,
   Settings,
+  Shield,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
-  { href: "/dashboard/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/dashboard/voc", label: "Voice of Customer", icon: Mic },
+  { href: "/dashboard/leads", label: "Leads Overview", icon: Users },
+  { href: "/dashboard/live-transfers", label: "Live Transfers", icon: LayoutDashboard },
+  { href: "/dashboard/closing-intelligence", label: "Closing Intelligence", icon: Brain },
   { href: "/dashboard/actionables", label: "Actionables", icon: ListTodo },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  userEmail?: string;
+}
+
+export function Sidebar({ userEmail }: SidebarProps) {
   const pathname = usePathname();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+
+  const isHappyDebtAdmin =
+    userEmail &&
+    (userEmail.includes("happydebt.com") || userEmail.includes("tryintro.com"));
 
   return (
     <aside
@@ -59,6 +70,24 @@ export function Sidebar() {
             </Link>
           );
         })}
+
+        {isHappyDebtAdmin && (
+          <>
+            <div className="my-2 border-t border-zinc-800" />
+            <Link
+              href="/admin"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                pathname.startsWith("/admin")
+                  ? "bg-zinc-800 text-foreground"
+                  : "text-muted-foreground hover:bg-zinc-800/50 hover:text-foreground"
+              )}
+            >
+              <Shield className="h-5 w-5 shrink-0" />
+              {!collapsed && <span>Admin</span>}
+            </Link>
+          </>
+        )}
       </nav>
       <div className="border-t border-zinc-800 p-2">
         <Button

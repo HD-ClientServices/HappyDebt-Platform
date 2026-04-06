@@ -8,11 +8,11 @@
  *   2. Fall back to OpenAI Whisper if available
  *   3. Fail if neither works
  *
- * QA analysis: Claude (Anthropic) instead of GPT-4o
+ * QA analysis: Claude (Anthropic) with dynamic evaluation templates per org
  */
 
 import { GHLClient } from "@/lib/ghl/client";
-import { analyzeCallQA } from "@/lib/anthropic/client";
+import { analyzeCallQA, computeWeightedScore } from "@/lib/anthropic/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 interface ProcessCallPayload {
@@ -30,6 +30,8 @@ interface ProcessCallPayload {
   direction?: string;
   /** Call date from GHL */
   call_date?: string;
+  /** Lead ID if already resolved */
+  lead_id?: string;
 }
 
 interface ProcessCallOptions {
@@ -80,10 +82,64 @@ async function getTranscript(
     return transcribeAudio(audioBuffer);
   }
 
-  // 3. No transcription available — try downloading and using a basic approach
+  // 3. No transcription available
   throw new Error(
     "No transcription available: GHL transcription empty and OPENAI_API_KEY not set"
   );
+}
+
+/**
+ * Find or create a lead for the given contact.
+ * Returns the lead ID if found/created, null otherwise.
+ */
+async function resolveLeadId(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  contactId: string | undefined,
+  contactPhone: string | undefined,
+  contactName: string,
+  businessName: string | null
+): Promise<string | null> {
+  // Try by ghl_contact_id first
+  if (contactId) {
+    const { data: existingLead } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("ghl_contact_id", contactId)
+      .maybeSingle();
+
+    if (existingLead) return existingLead.id;
+  }
+
+  // Try by phone
+  if (contactPhone) {
+    const { data: existingLead } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("phone", contactPhone)
+      .maybeSingle();
+
+    if (existingLead) return existingLead.id;
+  }
+
+  // Create new lead with status in_sequence
+  const { data: newLead } = await supabase
+    .from("leads")
+    .insert({
+      org_id: orgId,
+      name: contactName || "Unknown Lead",
+      phone: contactPhone || null,
+      business_name: businessName || null,
+      ghl_contact_id: contactId || null,
+      source: "ghl_sync",
+      status: "in_sequence",
+    })
+    .select("id")
+    .single();
+
+  return newLead?.id || null;
 }
 
 /**
@@ -149,12 +205,28 @@ export async function processCall(
       return;
     }
 
+    // Resolve lead ID
+    const leadId = payload.lead_id || await resolveLeadId(
+      supabase, orgId, payload.contact_id, payload.contact_phone,
+      payload.contact_name, payload.business_name || null
+    );
+
+    // Load org's active evaluation template
+    const { data: template } = await supabase
+      .from("evaluation_templates")
+      .select("id, criteria")
+      .eq("org_id", orgId)
+      .eq("is_active", true)
+      .maybeSingle();
+
     // Insert preliminary call_recording with pending status
     const { data: recording, error: insertError } = await supabase
       .from("call_recordings")
       .insert({
         org_id: orgId,
         closer_id: closerId,
+        lead_id: leadId,
+        evaluation_template_id: template?.id || null,
         recording_url: "",
         duration_seconds: parseInt(String(payload.call_duration)) || 0,
         call_date: payload.call_date || new Date().toISOString(),
@@ -185,19 +257,23 @@ export async function processCall(
 
     const transcript = await getTranscript(ghl, messageId);
 
-    // QA Analysis with Claude
+    // QA Analysis with Claude — pass org template criteria if available
     await supabase
       .from("call_recordings")
       .update({ processing_status: "analyzing", transcript })
       .eq("id", recording.id);
 
-    const qaResult = await analyzeCallQA(transcript);
+    const templateCriteria = template?.criteria as Array<{
+      name: string;
+      description: string;
+      weight: number;
+      max_score: number;
+    }> | undefined;
 
-    // Compute scores for DB
-    const evaluationScore = Math.round(
-      (qaResult.good_count * 100 + qaResult.partial_count * 50) /
-        (qaResult.good_count + qaResult.partial_count + qaResult.missed_count || 1)
-    );
+    const qaResult = await analyzeCallQA(transcript, templateCriteria);
+
+    // Compute weighted evaluation score using template weights
+    const evaluationScore = computeWeightedScore(qaResult.criteria, templateCriteria);
 
     // Sentiment: heuristic based on overall score
     const sentimentMap = { green: 0.7, yellow: 0.3, red: -0.3 };
@@ -234,6 +310,7 @@ export async function processCall(
       completed_at: new Date().toISOString(),
       result: {
         call_recording_id: recording.id,
+        lead_id: leadId,
         overall: qaResult.overall,
         evaluation_score: evaluationScore,
         good: qaResult.good_count,
