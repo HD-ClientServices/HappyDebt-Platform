@@ -10,6 +10,9 @@ import type {
   GHLUser,
   GHLContactsResponse,
   GHLContact,
+  GHLPipeline,
+  GHLPipelinesResponse,
+  GHLOpportunitiesResponse,
   DiscoveredCall,
 } from "./types";
 
@@ -164,6 +167,26 @@ export class GHLClient {
     } catch {
       return null;
     }
+  }
+
+  /** Get all pipelines for this location */
+  async getPipelines(): Promise<GHLPipeline[]> {
+    const data = await this.request<GHLPipelinesResponse>(
+      `/opportunities/pipelines?locationId=${this.locationId}`
+    );
+    return data.pipelines || [];
+  }
+
+  /** Search opportunities filtered by pipeline and optionally by status */
+  async searchOpportunities(
+    pipelineId: string,
+    opts?: { status?: string; startAfter?: string; startAfterId?: string }
+  ): Promise<GHLOpportunitiesResponse> {
+    let url = `/opportunities/search?location_id=${this.locationId}&pipeline_id=${pipelineId}&limit=100`;
+    if (opts?.status) url += `&status=${opts.status}`;
+    if (opts?.startAfter) url += `&startAfter=${opts.startAfter}`;
+    if (opts?.startAfterId) url += `&startAfterId=${opts.startAfterId}`;
+    return this.request<GHLOpportunitiesResponse>(url);
   }
 
   /**

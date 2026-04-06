@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { useClosers } from "@/hooks/useClosers";
 import {
   Table,
   TableBody,
@@ -18,22 +19,19 @@ export function LiveTransfersTable() {
   const { data: transfers, isLoading } = useQuery({
     queryKey: ["live-transfers"],
     queryFn: async () => {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const { data } = await supabase
         .from("live_transfers")
         .select("id, transfer_date, lead_name, business_name, closer_id, status, amount")
+        .gte("transfer_date", startOfMonth)
         .order("transfer_date", { ascending: false })
         .limit(100);
       return data;
     },
   });
 
-  const { data: closers } = useQuery({
-    queryKey: ["closers"],
-    queryFn: async () => {
-      const { data } = await supabase.from("closers").select("id, name");
-      return data ?? [];
-    },
-  });
+  const { data: closers } = useClosers();
 
   const getCloserName = (id: string | null) =>
     closers?.find((c) => c.id === id)?.name ?? "—";

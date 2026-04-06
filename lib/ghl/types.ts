@@ -97,6 +97,44 @@ export interface GHLTranscriptionResponse {
   status?: string;
 }
 
+export interface GHLPipeline {
+  id: string;
+  name: string;
+  stages: Array<{ id: string; name: string }>;
+}
+
+export interface GHLPipelinesResponse {
+  pipelines: GHLPipeline[];
+}
+
+export interface GHLOpportunity {
+  id: string;
+  name?: string;
+  status: string;
+  monetaryValue?: number;
+  assignedTo?: string;
+  pipelineId?: string;
+  pipelineStageId?: string;
+  contact?: {
+    id?: string;
+    name?: string;
+    phone?: string;
+    email?: string;
+    companyName?: string;
+  };
+  createdAt: string;
+}
+
+export interface GHLOpportunitiesResponse {
+  opportunities: GHLOpportunity[];
+  meta?: {
+    total?: number;
+    nextPageUrl?: string;
+    startAfter?: string;
+    startAfterId?: string;
+  };
+}
+
 /** Represents a discovered call ready for processing */
 export interface DiscoveredCall {
   messageId: string;

@@ -1,10 +1,24 @@
+import dynamic from "next/dynamic";
 import { SuggestionsBanner } from "./SuggestionsBanner";
 import { CloserRankingPanel } from "./CloserRankingPanel";
-import { SentimentChart } from "./SentimentChart";
-import { EvaluationScoreChart } from "./EvaluationScoreChart";
 import { CriticalCallsPanel } from "./CriticalCallsPanel";
 import { ProcessingStatusBanner } from "./ProcessingStatusBanner";
-import { QACriteriaChart } from "./QACriteriaChart";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const SentimentChart = dynamic(
+  () => import("./SentimentChart").then((m) => ({ default: m.SentimentChart })),
+  { loading: () => <Skeleton className="h-[320px] w-full rounded-xl" /> }
+);
+
+const EvaluationScoreChart = dynamic(
+  () => import("./EvaluationScoreChart").then((m) => ({ default: m.EvaluationScoreChart })),
+  { loading: () => <Skeleton className="h-[320px] w-full rounded-xl" /> }
+);
+
+const QACriteriaChart = dynamic(
+  () => import("./QACriteriaChart").then((m) => ({ default: m.QACriteriaChart })),
+  { loading: () => <Skeleton className="h-[320px] w-full rounded-xl" /> }
+);
 
 export default function VoCPage() {
   return (

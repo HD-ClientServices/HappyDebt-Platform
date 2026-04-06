@@ -1,56 +1,32 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
+interface CloserWithStats {
+  id: string;
+  name: string;
+  avatar_url?: string;
+  avgScore: number;
+  count: number;
+  avgSentiment: number;
+  critical: number;
+}
+
 export function CloserRankingPanel() {
   const router = useRouter();
-  const supabase = createClient();
-  const { data: closers, isLoading } = useQuery({
+  const { data: closers, isLoading } = useQuery<CloserWithStats[]>({
     queryKey: ["closers-with-stats"],
     queryFn: async () => {
-      const { data: c } = await supabase
-        .from("closers")
-        .select("id, name, avatar_url")
-        .eq("active", true);
-      if (!c?.length) return [];
-      const { data: calls } = await supabase
-        .from("call_recordings")
-        .select("closer_id, evaluation_score, sentiment_score, is_critical");
-      const byCloser: Record<
-        string,
-        { avgScore: number; count: number; avgSentiment: number; critical: number }
-      > = {};
-      c.forEach((cl) => {
-        byCloser[cl.id] = { avgScore: 0, count: 0, avgSentiment: 0, critical: 0 };
-      });
-      (calls ?? []).forEach((call) => {
-        const o = byCloser[call.closer_id];
-        if (!o) return;
-        o.count += 1;
-        o.avgScore += Number(call.evaluation_score ?? 0);
-        o.avgSentiment += Number(call.sentiment_score ?? 0);
-        if (call.is_critical) o.critical += 1;
-      });
-      Object.keys(byCloser).forEach((id) => {
-        const o = byCloser[id];
-        if (o.count > 0) {
-          o.avgScore /= o.count;
-          o.avgSentiment /= o.count;
-        }
-      });
-      return c
-        .map((cl) => ({
-          ...cl,
-          ...byCloser[cl.id],
-        }))
-        .sort((a, b) => (b.avgScore ?? 0) - (a.avgScore ?? 0));
+      const res = await fetch("/api/closers/stats");
+      if (!res.ok) throw new Error("Failed to fetch closer stats");
+      return res.json();
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   if (isLoading) {
@@ -77,7 +53,7 @@ export function CloserRankingPanel() {
         {(closers ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">No closers yet.</p>
         ) : (
-          (closers ?? []).map((c: { id: string; name: string; avatar_url?: string; avgScore?: number; count?: number; critical?: number }) => (
+          (closers ?? []).map((c) => (
             <button
               key={c.id}
               type="button"

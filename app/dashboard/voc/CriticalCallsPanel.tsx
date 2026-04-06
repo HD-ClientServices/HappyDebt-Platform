@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { useClosers } from "@/hooks/useClosers";
 import {
   Table,
   TableBody,
@@ -48,13 +49,7 @@ export function CriticalCallsPanel() {
     },
   });
 
-  const { data: closers } = useQuery({
-    queryKey: ["closers"],
-    queryFn: async () => {
-      const { data } = await supabase.from("closers").select("id, name");
-      return data ?? [];
-    },
-  });
+  const { data: closers } = useClosers();
 
   const getCloserName = (id: string) =>
     closers?.find((c) => c.id === id)?.name ?? "—";

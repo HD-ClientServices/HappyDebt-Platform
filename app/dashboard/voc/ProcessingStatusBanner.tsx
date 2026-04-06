@@ -34,7 +34,11 @@ export function ProcessingStatusBanner() {
       if (!res.ok) throw new Error("Failed to fetch status");
       return res.json();
     },
-    refetchInterval: 10_000, // Poll every 10s
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      const active = d ? d.summary.pending + d.summary.processing : 0;
+      return active > 0 ? 10_000 : false;
+    },
   });
 
   const retryMutation = useMutation({

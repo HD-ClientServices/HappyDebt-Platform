@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 
 export default async function AdminLayout({
   children,
@@ -22,12 +23,12 @@ export default async function AdminLayout({
   return (
     <div className="min-h-screen bg-background p-6">
       <nav className="mb-6 flex gap-4">
-        <a href="/admin/plg" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+        <Link href="/admin/plg" className="text-sm font-medium text-muted-foreground hover:text-foreground">
           PLG
-        </a>
-        <a href="/admin/orgs" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+        </Link>
+        <Link href="/admin/orgs" className="text-sm font-medium text-muted-foreground hover:text-foreground">
           Orgs
-        </a>
+        </Link>
       </nav>
       {children}
     </div>

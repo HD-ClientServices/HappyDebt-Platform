@@ -123,7 +123,7 @@ export function GHLIntegrationSettings() {
     }
   };
 
-  // Sync calls
+  // Sync calls + opportunities
   const syncMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/pipeline/sync", { method: "POST" });
@@ -132,6 +132,14 @@ export function GHLIntegrationSettings() {
         throw new Error(body.error || `Sync failed: ${res.status}`);
       }
       return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["live-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["live-transfers-daily"] });
+      queryClient.invalidateQueries({ queryKey: ["overview-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["closers"] });
+      queryClient.invalidateQueries({ queryKey: ["closers-with-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["pipeline-status"] });
     },
   });
 
@@ -300,6 +308,11 @@ export function GHLIntegrationSettings() {
                 {(syncMutation.data as { calls_discovered?: number })?.calls_discovered} call(s) found,{" "}
                 {(syncMutation.data as { calls_new?: number })?.calls_new ?? 0} new,{" "}
                 {(syncMutation.data as { jobs_created?: number })?.jobs_created ?? 0} queued for analysis.
+              </p>
+            )}
+            {((syncMutation.data as { transfers_synced?: number })?.transfers_synced ?? 0) > 0 && (
+              <p className="text-muted-foreground">
+                {(syncMutation.data as { transfers_synced?: number })?.transfers_synced} live transfer(s) synced.
               </p>
             )}
           </div>

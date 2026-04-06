@@ -1,6 +1,12 @@
+import dynamic from "next/dynamic";
 import { KPIRow } from "./KPIRow";
 import { LiveTransfersTable } from "./LiveTransfersTable";
-import { DailyBarChart } from "./DailyBarChart";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const DailyBarChart = dynamic(
+  () => import("./DailyBarChart").then((m) => ({ default: m.DailyBarChart })),
+  { loading: () => <Skeleton className="h-[320px] w-full rounded-xl" /> }
+);
 
 export default function OverviewPage() {
   return (
