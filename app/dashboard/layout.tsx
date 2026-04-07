@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 
 export default async function DashboardLayout({
   children,
@@ -26,6 +27,7 @@ export default async function DashboardLayout({
       <Sidebar userEmail={user.email ?? undefined} />
       <div className="flex flex-1 flex-col min-w-0">
         <Topbar user={{ email: user.email ?? undefined, avatar_url: user.user_metadata?.avatar_url }} />
+        <ImpersonationBanner />
         <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
       </div>
     </div>

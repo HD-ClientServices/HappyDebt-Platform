@@ -101,16 +101,16 @@ export default async function AdminPage() {
 
   const monetMap = new Map<
     string,
-    { happydebt: number; client: number; transferred: number; closedWon: number }
+    { intro: number; client: number; transferred: number; closedWon: number }
   >();
 
   for (const lead of allLeads ?? []) {
     if (!monetMap.has(lead.org_id)) {
-      monetMap.set(lead.org_id, { happydebt: 0, client: 0, transferred: 0, closedWon: 0 });
+      monetMap.set(lead.org_id, { intro: 0, client: 0, transferred: 0, closedWon: 0 });
     }
     const entry = monetMap.get(lead.org_id)!;
     if (lead.source === "client_upload") entry.client++;
-    else entry.happydebt++;
+    else entry.intro++;
     if (lead.status === "transferred") entry.transferred++;
     if (lead.status === "closed_won") entry.closedWon++;
   }
@@ -122,7 +122,7 @@ export default async function AdminPage() {
     ([orgId, stats]) => ({
       id: orgId,
       name: orgNameMap.get(orgId) ?? orgId,
-      happydebtLeads: stats.happydebt,
+      introLeads: stats.intro,
       clientLeads: stats.client,
       transferred: stats.transferred,
       closedWon: stats.closedWon,

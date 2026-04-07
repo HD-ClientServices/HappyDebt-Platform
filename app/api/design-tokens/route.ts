@@ -1,7 +1,7 @@
 /**
  * Design tokens API.
  * GET — public, returns the global tokens (so all users see consistent theming)
- * PATCH — restricted to HappyDebt staff (email @happydebt.com / @tryintro.com)
+ * PATCH — restricted to Intro staff (email @happydebt.com / @tryintro.com)
  */
 
 import { NextResponse } from "next/server";

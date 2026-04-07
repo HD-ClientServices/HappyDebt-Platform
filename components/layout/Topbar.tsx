@@ -12,6 +12,8 @@ import {
 import { ChevronDown, LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { OrgSwitcher } from "@/components/admin/OrgSwitcher";
+import { useImpersonationStore } from "@/store/impersonation-store";
 
 const pathLabels: Record<string, string> = {
   overview: "Overview",
@@ -49,8 +51,10 @@ function Breadcrumbs() {
 export function Topbar({ user }: { user: { email?: string; avatar_url?: string } | null }) {
   const router = useRouter();
   const supabase = createClient();
+  const clearImpersonation = useImpersonationStore((s) => s.clearImpersonation);
 
   const handleSignOut = async () => {
+    clearImpersonation();
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();
@@ -59,7 +63,8 @@ export function Topbar({ user }: { user: { email?: string; avatar_url?: string }
   return (
     <header className="flex h-14 items-center justify-between border-b border-zinc-800 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <Breadcrumbs />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
+        <OrgSwitcher />
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
             <Avatar className="h-8 w-8">

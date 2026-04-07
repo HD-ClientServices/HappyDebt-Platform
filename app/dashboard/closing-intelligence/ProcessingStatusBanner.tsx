@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { apiFetch } from "@/lib/api-client";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface PipelineStatus {
   jobs: {
@@ -26,11 +28,14 @@ interface PipelineStatus {
 
 export function ProcessingStatusBanner() {
   const queryClient = useQueryClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
 
   const { data, isLoading } = useQuery<PipelineStatus>({
-    queryKey: ["pipeline-status"],
+    queryKey: ["pipeline-status", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
-      const res = await fetch("/api/pipeline/status");
+      const res = await apiFetch("/api/pipeline/status");
       if (!res.ok) throw new Error("Failed to fetch status");
       return res.json();
     },
@@ -43,7 +48,7 @@ export function ProcessingStatusBanner() {
 
   const retryMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      const res = await fetch("/api/pipeline/process", {
+      const res = await apiFetch("/api/pipeline/process", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -54,7 +59,7 @@ export function ProcessingStatusBanner() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pipeline-status"] });
+      queryClient.invalidateQueries({ queryKey: ["pipeline-status", orgId] });
     },
   });
 

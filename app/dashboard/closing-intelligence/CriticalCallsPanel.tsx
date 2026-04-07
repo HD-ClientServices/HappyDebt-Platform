@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useClosers } from "@/hooks/useClosers";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 import {
   Table,
   TableBody,
@@ -33,15 +34,19 @@ const miniScore = (score: string | undefined) => {
 export function CriticalCallsPanel() {
   const supabase = createClient();
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
 
   const { data: calls, isLoading } = useQuery({
-    queryKey: ["critical-calls"],
+    queryKey: ["critical-calls", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data } = await supabase
         .from("call_recordings")
         .select(
           "id, call_date, closer_id, evaluation_score, sentiment_score, duration_seconds, recording_url, critical_action_plan, strengths, improvement_areas, criteria_scores, contact_name, business_name"
         )
+        .eq("org_id", orgId!)
         .eq("is_critical", true)
         .order("evaluation_score", { ascending: true })
         .limit(20);

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { CallAudioPlayer } from "@/components/audio/CallAudioPlayer";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface CloserDetailProps {
   closerId: string;
@@ -23,12 +24,16 @@ interface CloserDetailProps {
 
 export function CloserDetail({ closerId, initialCloser }: CloserDetailProps) {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
   const { data: calls } = useQuery({
-    queryKey: ["call-recordings", closerId],
+    queryKey: ["call-recordings", orgId, closerId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data } = await supabase
         .from("call_recordings")
         .select("*")
+        .eq("org_id", orgId!)
         .eq("closer_id", closerId)
         .order("call_date", { ascending: false });
       return data ?? [];

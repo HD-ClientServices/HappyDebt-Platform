@@ -14,6 +14,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DrillDownFilter } from "./DrillDownPanel";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface SentimentChartProps {
   onDrillDown?: (title: string, filter: DrillDownFilter) => void;
@@ -21,14 +22,18 @@ interface SentimentChartProps {
 
 export function SentimentChart({ onDrillDown }: SentimentChartProps) {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
   const { data, isLoading } = useQuery({
-    queryKey: ["sentiment-by-day"],
+    queryKey: ["sentiment-by-day", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const start = new Date();
       start.setDate(start.getDate() - 30);
       const { data: calls } = await supabase
         .from("call_recordings")
         .select("call_date, sentiment_score")
+        .eq("org_id", orgId!)
         .gte("call_date", start.toISOString());
       const byDay: Record<string, { sum: number; count: number }> = {};
       (calls ?? []).forEach((c) => {

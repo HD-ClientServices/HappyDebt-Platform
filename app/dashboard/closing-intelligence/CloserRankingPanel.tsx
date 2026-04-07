@@ -6,6 +6,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiFetch } from "@/lib/api-client";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface CloserWithStats {
   id: string;
@@ -19,10 +21,13 @@ interface CloserWithStats {
 
 export function CloserRankingPanel() {
   const router = useRouter();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
   const { data: closers, isLoading } = useQuery<CloserWithStats[]>({
-    queryKey: ["closers-with-stats"],
+    queryKey: ["closers-with-stats", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
-      const res = await fetch("/api/closers/stats");
+      const res = await apiFetch("/api/closers/stats");
       if (!res.ok) throw new Error("Failed to fetch closer stats");
       return res.json();
     },

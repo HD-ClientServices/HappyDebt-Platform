@@ -1,26 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-/**
- * Get the authenticated user's id and org_id.
- */
-async function getAuthUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("users")
-    .select("id, org_id, role")
-    .eq("id", user.id)
-    .single();
-
-  return profile ?? null;
-}
+import { getEffectiveOrgId } from "@/lib/auth/getEffectiveOrgId";
 
 /**
  * GET /api/leads - List leads with filters
@@ -34,9 +14,13 @@ async function getAuthUser() {
  */
 export async function GET(request: Request) {
   try {
-    const user = await getAuthUser();
-    if (!user) {
+    const ctx = await getEffectiveOrgId(request);
+    if (!ctx.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const orgId = ctx.effectiveOrgId;
+    if (!orgId) {
+      return NextResponse.json({ error: "No org context" }, { status: 400 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -46,12 +30,12 @@ export async function GET(request: Request) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 200);
     const offset = parseInt(searchParams.get("offset") || "0", 10);
 
-    // Use user-scoped client so RLS handles org filtering
-    const supabase = await createClient();
+    const admin = createAdminClient();
 
-    let query = supabase
+    let query = admin
       .from("leads")
       .select("*, closers(name)", { count: "exact" })
+      .eq("org_id", orgId)
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -89,9 +73,13 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   try {
-    const user = await getAuthUser();
-    if (!user) {
+    const ctx = await getEffectiveOrgId(request);
+    if (!ctx.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const orgId = ctx.effectiveOrgId;
+    if (!orgId) {
+      return NextResponse.json({ error: "No org context" }, { status: 400 });
     }
 
     const body = await request.json();
@@ -108,7 +96,7 @@ export async function POST(request: Request) {
     const { data: lead, error } = await adminSupabase
       .from("leads")
       .insert({
-        org_id: user.org_id,
+        org_id: orgId,
         name: name.trim(),
         phone: phone || null,
         email: email || null,
@@ -140,9 +128,13 @@ export async function POST(request: Request) {
  */
 export async function PATCH(request: Request) {
   try {
-    const user = await getAuthUser();
-    if (!user) {
+    const ctx = await getEffectiveOrgId(request);
+    if (!ctx.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const orgId = ctx.effectiveOrgId;
+    if (!orgId) {
+      return NextResponse.json({ error: "No org context" }, { status: 400 });
     }
 
     const body = await request.json();
@@ -172,7 +164,7 @@ export async function PATCH(request: Request) {
         .from("leads")
         .select("transfer_date")
         .eq("id", id)
-        .eq("org_id", user.org_id)
+        .eq("org_id", orgId)
         .single();
 
       if (!existing) {
@@ -194,7 +186,7 @@ export async function PATCH(request: Request) {
       .from("leads")
       .update(updates)
       .eq("id", id)
-      .eq("org_id", user.org_id)
+      .eq("org_id", orgId)
       .select()
       .single();
 

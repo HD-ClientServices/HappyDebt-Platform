@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api-client";
 
 interface UploadLead {
   name: string;
@@ -14,7 +15,7 @@ export function useLeadUpload() {
 
   return useMutation({
     mutationFn: async (leads: UploadLead[]) => {
-      const res = await fetch("/api/leads/upload", {
+      const res = await apiFetch("/api/leads/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leads }),
@@ -27,7 +28,7 @@ export function useLeadUpload() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });
-      queryClient.invalidateQueries({ queryKey: ["happydebt-transfers-count"] });
+      queryClient.invalidateQueries({ queryKey: ["intro-transfers-count"] });
     },
   });
 }

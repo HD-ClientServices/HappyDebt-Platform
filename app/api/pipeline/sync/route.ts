@@ -7,38 +7,29 @@
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 import { GHLClient } from "@/lib/ghl/client";
+import { getEffectiveOrgId } from "@/lib/auth/getEffectiveOrgId";
 
 export const maxDuration = 60;
 
-export async function POST() {
+export async function POST(request: Request) {
   const t0 = Date.now();
   try {
-    const userSupabase = await createClient();
-    const {
-      data: { user },
-    } = await userSupabase.auth.getUser();
-
-    if (!user) {
+    const ctx = await getEffectiveOrgId(request);
+    if (!ctx.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const effectiveOrgId = ctx.effectiveOrgId;
+    if (!effectiveOrgId) {
+      return NextResponse.json({ error: "No org context" }, { status: 400 });
     }
 
     const adminSupabase = createAdminClient();
-    const { data: userData } = await adminSupabase
-      .from("users")
-      .select("org_id")
-      .eq("id", user.id)
-      .single();
-
-    if (!userData) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
 
     const { data: org } = await adminSupabase
       .from("organizations")
-      .select("id, ghl_api_token, ghl_location_id")
-      .eq("id", userData.org_id)
+      .select("id, ghl_api_token, ghl_location_id, ghl_opening_pipeline_id")
+      .eq("id", effectiveOrgId)
       .single();
 
     if (!org) {
@@ -107,7 +98,7 @@ export async function POST() {
     // ── Run Steps 2-3 (calls) and Step 6 (opportunities) in PARALLEL ──
     const [callsResult, oppsResult] = await Promise.all([
       syncCalls(ghl, adminSupabase, org.id, closerMap),
-      syncOpportunities(ghl, adminSupabase, org.id, closerMap),
+      syncOpportunities(ghl, adminSupabase, org.id, closerMap, org.ghl_opening_pipeline_id ?? null),
     ]);
 
     // ── Step 5: Trigger pipeline workers (fire-and-forget) ────────
@@ -288,20 +279,26 @@ async function syncOpportunities(
   ghl: GHLClient,
   adminSupabase: ReturnType<typeof createAdminClient>,
   orgId: string,
-  closerMap: Map<string, string>
+  closerMap: Map<string, string>,
+  configuredPipelineId: string | null
 ) {
   const pipelines = await ghl.getPipelines();
-  const openingPipeline = pipelines.find(
-    (p) => p.name.toLowerCase().includes("opening")
-  );
+
+  // Prefer the org-configured pipeline ID; fall back to name match for
+  // backwards compatibility.
+  const openingPipeline = configuredPipelineId
+    ? pipelines.find((p) => p.id === configuredPipelineId)
+    : pipelines.find((p) => p.name.toLowerCase().includes("opening"));
 
   if (!openingPipeline) {
-    const warning = `No pipeline matching "Opening Pipeline" found. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`;
+    const warning = configuredPipelineId
+      ? `Configured opening pipeline (id=${configuredPipelineId}) not found in GHL. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`
+      : `No pipeline matching "Opening Pipeline" found. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`;
     console.warn(`[sync] ${warning}`);
     return { transfersSynced: 0, warning };
   }
 
-  console.log(`[sync] Found Opening Pipeline: "${openingPipeline.name}" (${openingPipeline.id})`);
+  console.log(`[sync] Using Opening Pipeline: "${openingPipeline.name}" (${openingPipeline.id})${configuredPipelineId ? " [configured]" : " [name match]"}`);
 
   // Fetch all won opps from Opening Pipeline
   const allOpps = [];

@@ -14,7 +14,7 @@ export interface OrgRetention {
 export interface OrgMonetization {
   id: string;
   name: string;
-  happydebtLeads: number;
+  introLeads: number;
   clientLeads: number;
   transferred: number;
   closedWon: number;
@@ -151,7 +151,7 @@ export function PLGPanel({ data }: { data: PLGData }) {
             <thead className="bg-zinc-900/80">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Organization</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">HappyDebt</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Intro</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Client</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Transferred</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">Closed Won</th>
@@ -161,7 +161,7 @@ export function PLGPanel({ data }: { data: PLGData }) {
               {data.monetizationList.map((org) => (
                 <tr key={org.id} className="border-t border-zinc-800 hover:bg-zinc-800/30">
                   <td className="px-4 py-2.5 font-medium">{org.name}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{org.happydebtLeads}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{org.introLeads}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{org.clientLeads}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{org.transferred}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{org.closedWon}</td>

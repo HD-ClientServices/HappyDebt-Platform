@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getEffectiveOrgId } from "@/lib/auth/getEffectiveOrgId";
 
 /**
  * POST /api/leads/upload - Bulk upload leads from CSV/JSON
  *
- * Auth: user must have admin or happydebt_admin role.
+ * Auth: user must have admin or intro_admin role.
  * Body: { leads: Array<{ name, phone?, email?, business_name? }> }
  *
  * Deduplicates by phone within the org before inserting.
@@ -14,31 +14,23 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export async function POST(request: Request) {
   try {
     // ── Auth ──────────────────────────────────────────────────────
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
+    const ctx = await getEffectiveOrgId(request);
+    if (!ctx.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const adminSupabase = createAdminClient();
-    const { data: profile } = await adminSupabase
-      .from("users")
-      .select("org_id, role")
-      .eq("id", user.id)
-      .single();
 
-    if (!profile) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    if (profile.role !== "admin" && profile.role !== "happydebt_admin") {
+    if (ctx.role !== "admin" && ctx.role !== "intro_admin") {
       return NextResponse.json(
         { error: "Forbidden: admin role required" },
         { status: 403 }
       );
+    }
+
+    const orgId = ctx.effectiveOrgId;
+    if (!orgId) {
+      return NextResponse.json({ error: "No org context" }, { status: 400 });
     }
 
     // ── Validate body ────────────────────────────────────────────
@@ -74,7 +66,7 @@ export async function POST(request: Request) {
         const { data: existing } = await adminSupabase
           .from("leads")
           .select("phone")
-          .eq("org_id", profile.org_id)
+          .eq("org_id", orgId)
           .in("phone", chunk);
 
         (existing || []).forEach((row: { phone: string | null }) => {
@@ -99,7 +91,7 @@ export async function POST(request: Request) {
       if (phone) seenPhones.add(phone);
 
       toInsert.push({
-        org_id: profile.org_id,
+        org_id: orgId,
         name: (lead.name as string).trim(),
         phone: phone || null,
         email: typeof lead.email === "string" ? lead.email.trim() : null,

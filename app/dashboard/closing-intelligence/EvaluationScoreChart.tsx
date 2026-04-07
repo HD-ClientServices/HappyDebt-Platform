@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DrillDownFilter } from "./DrillDownPanel";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface EvaluationScoreChartProps {
   onDrillDown?: (title: string, filter: DrillDownFilter) => void;
@@ -22,17 +23,22 @@ interface EvaluationScoreChartProps {
 
 export function EvaluationScoreChart({ onDrillDown }: EvaluationScoreChartProps) {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
   const { data, isLoading } = useQuery({
-    queryKey: ["avg-score-by-closer"],
+    queryKey: ["avg-score-by-closer", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data: closers } = await supabase
         .from("closers")
         .select("id, name")
+        .eq("org_id", orgId!)
         .eq("active", true);
       if (!closers?.length) return { data: [], avg: 0 };
       const { data: calls } = await supabase
         .from("call_recordings")
-        .select("closer_id, evaluation_score");
+        .select("closer_id, evaluation_score")
+        .eq("org_id", orgId!);
       const byCloser: Record<string, { sum: number; count: number }> = {};
       closers.forEach((c) => {
         byCloser[c.id] = { sum: 0, count: 0 };

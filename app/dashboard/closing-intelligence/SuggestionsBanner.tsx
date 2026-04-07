@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Search, BarChart3, Microscope, Wrench, Check } from "lucide-react";
 import { trackEvent } from "@/lib/plg";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 const FALLBACK_SUGGESTIONS: { icon: React.ComponentType<{ className?: string }>; text: string }[] = [
   { icon: Search, text: "Compare sentiment trends between your top and bottom closers this week" },
@@ -18,6 +19,8 @@ const FALLBACK_SUGGESTIONS: { icon: React.ComponentType<{ className?: string }>;
 
 export function SuggestionsBanner() {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const effectiveOrgId = userOrg?.orgId;
   const [savedIndices, setSavedIndices] = useState<Set<number>>(new Set());
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
 
@@ -47,11 +50,10 @@ export function SuggestionsBanner() {
           data: { user },
         } = await supabase.auth.getUser();
         if (!user) return;
-        const orgId =
-          user.user_metadata?.org_id ?? user.app_metadata?.org_id ?? null;
+        if (!effectiveOrgId) return;
 
         const { error } = await supabase.from("actionables").insert({
-          org_id: orgId,
+          org_id: effectiveOrgId,
           user_id: user.id,
           title: text,
           source_type: "suggestion",
@@ -67,7 +69,7 @@ export function SuggestionsBanner() {
         setSavingIndex(null);
       }
     },
-    [supabase, savedIndices]
+    [supabase, savedIndices, effectiveOrgId]
   );
 
   return (

@@ -1,37 +1,30 @@
 /**
  * Pipeline Status — returns recent processing job statuses for the UI.
- * Authenticated by user session.
+ * Authenticated by user session, respects admin impersonation.
  */
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import { getEffectiveOrgId } from "@/lib/auth/getEffectiveOrgId";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const userSupabase = await createClient();
-    const { data: { user } } = await userSupabase.auth.getUser();
-
-    if (!user) {
+    const ctx = await getEffectiveOrgId(request);
+    if (!ctx.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const orgId = ctx.effectiveOrgId;
+    if (!orgId) {
+      return NextResponse.json({ error: "No org context" }, { status: 400 });
     }
 
     const adminSupabase = createAdminClient();
-    const { data: userData } = await adminSupabase
-      .from("users")
-      .select("org_id")
-      .eq("id", user.id)
-      .single();
-
-    if (!userData) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
 
     // Get recent jobs
     const { data: jobs } = await adminSupabase
       .from("processing_jobs")
       .select("id, status, job_type, error_message, attempts, created_at, started_at, completed_at, payload")
-      .eq("org_id", userData.org_id)
+      .eq("org_id", orgId)
       .order("created_at", { ascending: false })
       .limit(20);
 

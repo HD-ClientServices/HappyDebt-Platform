@@ -69,7 +69,7 @@ export default function LeadsPage() {
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["leads"] });
-    queryClient.invalidateQueries({ queryKey: ["happydebt-transfers-count"] });
+    queryClient.invalidateQueries({ queryKey: ["intro-transfers-count"] });
     setLastUpdated(new Date());
   };
 
