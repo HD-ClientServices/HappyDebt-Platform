@@ -27,6 +27,7 @@ export function useLeadUpload() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["happydebt-transfers-count"] });
     },
   });
 }

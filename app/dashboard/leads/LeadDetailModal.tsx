@@ -122,9 +122,7 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
                 <Badge variant="outline">
                   {lead.source === "client_upload"
                     ? "Your Leads"
-                    : lead.source === "happydebt"
-                      ? "HappyDebt"
-                      : "GHL Sync"}
+                    : "HappyDebt"}
                 </Badge>
                 {lead.amount && (
                   <Badge variant="outline">
