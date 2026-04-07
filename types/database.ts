@@ -1,12 +1,12 @@
 export type OrgPlan = "free" | "starter" | "growth" | "enterprise";
-export type UserRole = "admin" | "manager" | "viewer" | "happydebt_admin";
+export type UserRole = "admin" | "manager" | "viewer" | "intro_admin";
 export type LiveTransferStatus =
   | "transferred"
   | "connected"
   | "funded"
   | "declined"
   | "no_answer";
-export type LeadSource = "happydebt" | "client_upload" | "ghl_sync";
+export type LeadSource = "intro" | "client_upload" | "ghl_sync";
 export type LeadStatus = "in_sequence" | "transferred" | "closed_won";
 export type ActionableSourceType =
   | "call_review"

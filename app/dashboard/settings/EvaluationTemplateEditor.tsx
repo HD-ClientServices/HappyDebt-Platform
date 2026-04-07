@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EvaluationCriteria } from "@/types/database";
 import { Plus, Trash2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 const DEFAULT_CRITERIA: EvaluationCriteria[] = [
   { name: "Greeting & Rapport", description: "Professional intro, builds trust", weight: 0.15, max_score: 10 },
@@ -24,17 +25,21 @@ interface EvaluationTemplateEditorProps {
 }
 
 export function EvaluationTemplateEditor({ userRole }: EvaluationTemplateEditorProps) {
-  const isAdmin = userRole === "admin" || userRole === "happydebt_admin";
+  const isAdmin = userRole === "admin" || userRole === "intro_admin";
   const supabase = createClient();
   const queryClient = useQueryClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
   const [criteria, setCriteria] = useState<EvaluationCriteria[]>(DEFAULT_CRITERIA);
 
   const { data: template, isLoading } = useQuery({
-    queryKey: ["evaluation-templates"],
+    queryKey: ["evaluation-templates", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data } = await supabase
         .from("evaluation_templates")
         .select("*")
+        .eq("org_id", orgId!)
         .eq("is_active", true)
         .limit(1)
         .maybeSingle(); // returns null (not error) when no rows exist
@@ -48,18 +53,16 @@ export function EvaluationTemplateEditor({ userRole }: EvaluationTemplateEditorP
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-      const { data: profile } = await supabase.from("users").select("org_id").eq("id", user.id).single();
-      if (!profile?.org_id) throw new Error("No org");
+      if (!orgId) throw new Error("No org");
       if (template?.id) {
         await supabase
           .from("evaluation_templates")
           .update({ criteria, name: template.name })
-          .eq("id", template.id);
+          .eq("id", template.id)
+          .eq("org_id", orgId);
       } else {
         await supabase.from("evaluation_templates").insert({
-          org_id: profile.org_id,
+          org_id: orgId,
           name: "Default",
           is_active: true,
           criteria,
@@ -67,7 +70,7 @@ export function EvaluationTemplateEditor({ userRole }: EvaluationTemplateEditorP
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["evaluation-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["evaluation-templates", orgId] });
     },
   });
 

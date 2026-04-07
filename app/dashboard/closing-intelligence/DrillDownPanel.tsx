@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useClosers } from "@/hooks/useClosers";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,8 @@ function sentimentBadge(s: number | null | undefined) {
 export function DrillDownPanel({ open, onClose, title, filter }: DrillDownPanelProps) {
   const supabase = createClient();
   const { data: closers } = useClosers();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
 
   // Track drilldown open
   useEffect(() => {
@@ -60,14 +63,15 @@ export function DrillDownPanel({ open, onClose, title, filter }: DrillDownPanelP
   }, [open, title, filter]);
 
   const { data: calls, isLoading } = useQuery({
-    queryKey: ["drilldown-calls", filter],
-    enabled: open,
+    queryKey: ["drilldown-calls", orgId, filter],
+    enabled: open && !!orgId,
     queryFn: async () => {
       let query = supabase
         .from("call_recordings")
         .select(
           "id, call_date, closer_id, evaluation_score, sentiment_score, duration_seconds, recording_url, criteria_scores, contact_name, business_name"
         )
+        .eq("org_id", orgId!)
         .order("call_date", { ascending: false })
         .limit(50);
 

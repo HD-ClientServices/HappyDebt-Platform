@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DrillDownFilter } from "./DrillDownPanel";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface QACriteriaChartProps {
   onDrillDown?: (title: string, filter: DrillDownFilter) => void;
@@ -37,13 +38,17 @@ interface CriterionData {
 
 export function QACriteriaChart({ onDrillDown }: QACriteriaChartProps) {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-criteria-distribution"],
+    queryKey: ["qa-criteria-distribution", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data: calls } = await supabase
         .from("call_recordings")
         .select("criteria_scores")
+        .eq("org_id", orgId!)
         .not("criteria_scores", "is", null);
 
       if (!calls || calls.length === 0) return [] as CriterionData[];

@@ -1,14 +1,29 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getEffectiveOrgId } from "@/lib/auth/getEffectiveOrgId";
 
-export async function GET() {
-  const supabase = await createClient();
+export async function GET(request: Request) {
+  const ctx = await getEffectiveOrgId(request);
+  if (!ctx.userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const orgId = ctx.effectiveOrgId;
+  if (!orgId) {
+    return NextResponse.json({ error: "No org context" }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
 
   const [{ data: closers }, { data: calls }] = await Promise.all([
-    supabase.from("closers").select("id, name, avatar_url").eq("active", true),
-    supabase
+    admin
+      .from("closers")
+      .select("id, name, avatar_url")
+      .eq("org_id", orgId)
+      .eq("active", true),
+    admin
       .from("call_recordings")
-      .select("closer_id, evaluation_score, sentiment_score, is_critical"),
+      .select("closer_id, evaluation_score, sentiment_score, is_critical")
+      .eq("org_id", orgId),
   ]);
 
   if (!closers?.length) return NextResponse.json([]);

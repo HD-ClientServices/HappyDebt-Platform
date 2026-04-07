@@ -1,4 +1,4 @@
-# HappyDebt Client Portal — PLAN.md (Phase 0)
+# Intro Client Portal — PLAN.md (Phase 0)
 
 Este documento define la arquitectura, datos, componentes, rutas, estado e instrumentación PLG antes de escribir código.
 
@@ -92,7 +92,7 @@ flowchart TB
 | plg_events | id, org_id, user_id, event_name, event_properties, session_id | org_id, user_id |
 | feature_usage | id, org_id, user_id, feature_key, usage_count, first_used_at, last_used_at | UNIQUE(org_id, user_id, feature_key) |
 
-**RLS:** org_id filter; happydebt_admin bypass; viewer = read-only except own actionables; manager = CRUD org data; admin = + user management.
+**RLS:** org_id filter; intro_admin bypass; viewer = read-only except own actionables; manager = CRUD org data; admin = + user management.
 
 ---
 
@@ -109,7 +109,7 @@ Layout (root), AuthLayout, LoginPage, OnboardingWizard, DashboardLayout, Sidebar
 | / | — | Redirect to /dashboard or /login |
 | /login, /onboarding | AuthLayout | Public / Authenticated |
 | /dashboard/* | DashboardLayout | Authenticated, org scoped |
-| /admin/* | AdminLayout | happydebt_admin only |
+| /admin/* | AdminLayout | intro_admin only |
 
 ---
 

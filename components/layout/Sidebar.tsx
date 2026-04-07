@@ -33,7 +33,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
-  const isHappyDebtAdmin =
+  const isIntroAdmin =
     userEmail &&
     (userEmail.includes("happydebt.com") || userEmail.includes("tryintro.com"));
 
@@ -47,7 +47,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
       <div className="flex h-14 items-center border-b border-zinc-800 px-3">
         {!collapsed && (
           <span className="font-heading font-semibold text-lg text-foreground">
-            HappyDebt
+            Intro
           </span>
         )}
       </div>
@@ -71,7 +71,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
           );
         })}
 
-        {isHappyDebtAdmin && (
+        {isIntroAdmin && (
           <>
             <div className="my-2 border-t border-zinc-800" />
             <Link

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useClosers } from "@/hooks/useClosers";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 import {
   Table,
   TableBody,
@@ -16,14 +17,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function LiveTransfersTable() {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
+
   const { data: transfers, isLoading } = useQuery({
-    queryKey: ["live-transfers"],
+    queryKey: ["live-transfers", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const { data } = await supabase
         .from("live_transfers")
         .select("id, transfer_date, lead_name, business_name, closer_id, status, amount")
+        .eq("org_id", orgId!)
         .gte("transfer_date", startOfMonth)
         .order("transfer_date", { ascending: false })
         .limit(100);

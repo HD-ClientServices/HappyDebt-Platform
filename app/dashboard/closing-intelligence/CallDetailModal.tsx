@@ -22,6 +22,7 @@ import {
   Calendar,
   Clock,
 } from "lucide-react";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface CallDetailModalProps {
   callId: string | null;
@@ -73,9 +74,11 @@ const overallBadge = (score: number | null) => {
 
 export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps) {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
 
   const { data: call, isLoading } = useQuery({
-    queryKey: ["call-detail", callId],
+    queryKey: ["call-detail", orgId, callId],
     queryFn: async () => {
       if (!callId) return null;
       const { data } = await supabase
@@ -83,11 +86,12 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
         .select(
           "*, closers(name)"
         )
+        .eq("org_id", orgId!)
         .eq("id", callId)
         .single();
       return data;
     },
-    enabled: !!callId && open,
+    enabled: !!callId && open && !!orgId,
   });
 
   return (

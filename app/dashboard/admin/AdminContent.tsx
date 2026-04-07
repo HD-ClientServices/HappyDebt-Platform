@@ -32,7 +32,7 @@ export function AdminContent({ plgData, orgs }: AdminContentProps) {
         <div>
           <h1 className="font-heading text-2xl font-semibold">Admin</h1>
           <p className="text-sm text-muted-foreground">
-            Internal tools for HappyDebt staff
+            Internal tools for Intro staff
           </p>
         </div>
         <Link href="/dashboard/leads">

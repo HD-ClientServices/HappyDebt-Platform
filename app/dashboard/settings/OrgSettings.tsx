@@ -7,18 +7,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 export function OrgSettings() {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
 
   const { data: org, isLoading } = useQuery({
-    queryKey: ["organization"],
+    queryKey: ["organization", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-      const { data: profile } = await supabase.from("users").select("org_id").eq("id", user.id).single();
-      if (!profile?.org_id) return null;
-      const { data } = await supabase.from("organizations").select("*").eq("id", profile.org_id).single();
+      const { data } = await supabase
+        .from("organizations")
+        .select("*")
+        .eq("id", orgId!)
+        .single();
       return data;
     },
   });

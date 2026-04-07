@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 const authPaths = ["/dashboard", "/admin"];
-const publicPaths = ["/login", "/onboarding"];
+const publicPaths = ["/login", "/signup", "/onboarding"];
 const bypassPaths = ["/api/webhooks", "/api/cron"];
 
 function isAuthRequired(pathname: string) {

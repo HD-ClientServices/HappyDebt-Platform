@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, Fragment } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { DateRange } from "react-day-picker";
 import { createClient } from "@/lib/supabase/client";
 import {
   Table,
@@ -15,51 +16,120 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CallAudioPlayer } from "@/components/audio/CallAudioPlayer";
-import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  CheckCircle2,
+  Undo2,
+} from "lucide-react";
 import { trackEvent } from "@/lib/plg";
+import { apiFetch } from "@/lib/api-client";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 const statusLabels: Record<string, string> = {
-  in_sequence: "In Sequence",
   transferred: "Transferred",
-  closed_won: "Closed Won",
+  funded: "Funded",
+  declined: "Declined",
+  no_answer: "No Answer",
+  connected: "Connected",
 };
 
-const statusVariants: Record<string, "default" | "secondary" | "outline"> = {
-  in_sequence: "secondary",
+const statusVariants: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   transferred: "outline",
-  closed_won: "default",
+  funded: "default",
+  declined: "destructive",
+  no_answer: "secondary",
+  connected: "secondary",
 };
 
-export function LeadsOverviewTable() {
-  const supabase = createClient();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+interface Props {
+  dateRange?: DateRange;
+  filterDate?: string | null;
+}
 
-  const { data: leads, isLoading } = useQuery({
-    queryKey: ["overview-leads"],
+function rangeBounds(dateRange?: DateRange) {
+  if (!dateRange) {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: start.toISOString(), to: now.toISOString() };
+  }
+  const from = dateRange.from?.toISOString() ?? new Date().toISOString();
+  const to = dateRange.to
+    ? new Date(
+        dateRange.to.getFullYear(),
+        dateRange.to.getMonth(),
+        dateRange.to.getDate(),
+        23,
+        59,
+        59
+      ).toISOString()
+    : new Date().toISOString();
+  return { from, to };
+}
+
+export function LeadsOverviewTable({ dateRange, filterDate }: Props) {
+  const supabase = createClient();
+  const queryClient = useQueryClient();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
+
+  const { from, to } = rangeBounds(dateRange);
+
+  const { data: transfers, isLoading } = useQuery({
+    queryKey: ["live-transfers-overview", orgId, from, to],
+    enabled: !!orgId,
     queryFn: async () => {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const { data } = await supabase
-        .from("leads")
-        .select("id, name, business_name, closer_id, status, amount, source, created_at, closers(name)")
-        .gte("created_at", startOfMonth)
-        .order("created_at", { ascending: false })
+        .from("live_transfers")
+        .select("id, transfer_date, lead_name, lead_phone, business_name, closer_id, status, amount, closers(name)")
+        .eq("org_id", orgId!)
+        .gte("transfer_date", from)
+        .lte("transfer_date", to)
+        .order("transfer_date", { ascending: false })
         .limit(100);
       return data ?? [];
     },
   });
 
-  // Fetch calls for expanded lead
+  // Find the expanded transfer to get its phone for call lookup
+  const expandedTransfer = (transfers ?? []).find((t) => t.id === expandedId);
+  const expandedPhone = expandedTransfer?.lead_phone ?? null;
+
+  // Fetch calls associated to the expanded live_transfer via contact_phone match.
+  // (call_recordings.live_transfer_id is not populated in production data, so we
+  //  match by phone number which is the natural relationship.)
   const { data: expandedCalls } = useQuery({
-    queryKey: ["expanded-lead-calls", expandedId],
-    enabled: !!expandedId,
+    queryKey: ["expanded-lt-calls", orgId, expandedPhone],
+    enabled: !!expandedPhone && !!orgId,
     queryFn: async () => {
       const { data } = await supabase
         .from("call_recordings")
-        .select("id, call_date, duration_seconds, evaluation_score, processing_status, recording_url, strengths, improvement_areas, closers(name)")
-        .eq("lead_id", expandedId!)
+        .select("id, call_date, duration_seconds, evaluation_score, processing_status, recording_url, strengths, improvement_areas, contact_name, closers(name)")
+        .eq("org_id", orgId!)
+        .eq("contact_phone", expandedPhone!)
         .order("call_date", { ascending: false });
       return data ?? [];
+    },
+  });
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: "transferred" | "funded" }) => {
+      const res = await apiFetch("/api/live-transfers/mark-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to update");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["live-transfers-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["live-transfers-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["live-transfers-daily"] });
     },
   });
 
@@ -81,8 +151,21 @@ export function LeadsOverviewTable() {
     return "text-red-400";
   };
 
+  const filteredTransfers = filterDate
+    ? (transfers ?? []).filter(
+        (t) => new Date(t.transfer_date).toISOString().slice(0, 10) === filterDate
+      )
+    : transfers ?? [];
+
   return (
     <div className="rounded-xl border border-zinc-800 overflow-hidden">
+      {filterDate && (
+        <div className="bg-zinc-900/80 border-b border-zinc-800 px-4 py-2 text-sm text-muted-foreground">
+          Showing live transfers for{" "}
+          <span className="text-zinc-200 font-medium">{filterDate}</span>{" "}
+          ({filteredTransfers.length} result{filteredTransfers.length !== 1 ? "s" : ""})
+        </div>
+      )}
       <Table>
         <TableHeader>
           <TableRow className="border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900/50">
@@ -90,28 +173,27 @@ export function LeadsOverviewTable() {
             <TableHead>Date</TableHead>
             <TableHead>Lead</TableHead>
             <TableHead>Business</TableHead>
-            <TableHead>Source</TableHead>
             <TableHead>Closer</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Amount</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {(leads ?? []).length === 0 ? (
+          {filteredTransfers.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                No leads this month.
+              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                {filterDate ? "No live transfers on this day." : "No live transfers in this date range."}
               </TableCell>
             </TableRow>
           ) : (
-            (leads ?? []).map((lead) => {
-              const closer = lead.closers as { name: string } | null;
-              const isExpanded = expandedId === lead.id;
+            filteredTransfers.map((row) => {
+              const closer = row.closers as { name: string } | null;
+              const isExpanded = expandedId === row.id;
               return (
-                <Fragment key={lead.id}>
+                <Fragment key={row.id}>
                   <TableRow
                     className="border-zinc-800 cursor-pointer hover:bg-zinc-800/50"
-                    onClick={() => setExpandedId(isExpanded ? null : lead.id)}
+                    onClick={() => setExpandedId(isExpanded ? null : row.id)}
                   >
                     <TableCell className="w-8 px-2">
                       {isExpanded ? (
@@ -121,45 +203,74 @@ export function LeadsOverviewTable() {
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {new Date(lead.created_at).toLocaleDateString("en-US", {
+                      {new Date(row.transfer_date).toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
                       })}
                     </TableCell>
-                    <TableCell className="font-medium">{lead.name}</TableCell>
+                    <TableCell className="font-medium">{row.lead_name}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {lead.business_name ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        {lead.source === "client_upload"
-                          ? "Your Leads"
-                          : lead.source === "happydebt"
-                            ? "HappyDebt"
-                            : "HappyDebt"}
-                      </Badge>
+                      {row.business_name ?? "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {closer?.name ?? "—"}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusVariants[lead.status] || "secondary"}>
-                        {statusLabels[lead.status] || lead.status}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={statusVariants[row.status] || "secondary"}>
+                          {statusLabels[row.status] || row.status}
+                        </Badge>
+                        {row.status === "transferred" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-xs text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                            disabled={toggleStatusMutation.isPending}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleStatusMutation.mutate({
+                                id: row.id,
+                                status: "funded",
+                              });
+                            }}
+                          >
+                            <CheckCircle2 className="mr-1 h-3 w-3" />
+                            Mark Funded
+                          </Button>
+                        )}
+                        {row.status === "funded" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-xs text-muted-foreground hover:text-zinc-300 hover:bg-zinc-700/50"
+                            disabled={toggleStatusMutation.isPending}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleStatusMutation.mutate({
+                                id: row.id,
+                                status: "transferred",
+                              });
+                            }}
+                          >
+                            <Undo2 className="mr-1 h-3 w-3" />
+                            Undo
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
-                      {lead.amount != null
+                      {row.amount != null
                         ? new Intl.NumberFormat("en-US", {
                             style: "currency",
                             currency: "USD",
-                          }).format(Number(lead.amount))
+                          }).format(Number(row.amount))
                         : "—"}
                     </TableCell>
                   </TableRow>
 
                   {isExpanded && (
                     <TableRow className="border-zinc-800 bg-zinc-900/30">
-                      <TableCell colSpan={8} className="p-4">
+                      <TableCell colSpan={7} className="p-4">
                         <div className="space-y-3">
                           <h4 className="text-sm font-medium">
                             Calls ({expandedCalls?.length ?? 0})

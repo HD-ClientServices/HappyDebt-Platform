@@ -33,12 +33,15 @@ import {
 } from "@/components/ui/select";
 import { MoreHorizontal } from "lucide-react";
 import { trackEvent } from "@/lib/plg";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 type ActionableStatus = "pending" | "in_progress" | "done" | "dismissed";
 
 export function ActionablesBoard() {
   const supabase = createClient();
   const queryClient = useQueryClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
 
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -46,11 +49,13 @@ export function ActionablesBoard() {
   const [newPriority, setNewPriority] = useState("medium");
 
   const { data: actionables, isLoading } = useQuery({
-    queryKey: ["actionables"],
+    queryKey: ["actionables", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data } = await supabase
         .from("actionables")
         .select("*")
+        .eq("org_id", orgId!)
         .order("created_at", { ascending: false });
       return data ?? [];
     },
@@ -69,20 +74,25 @@ export function ActionablesBoard() {
       await supabase
         .from("actionables")
         .update({ status: to })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("org_id", orgId!);
       trackEvent("actionable_status_changed", { from, to });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["actionables"] });
+      queryClient.invalidateQueries({ queryKey: ["actionables", orgId] });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await supabase.from("actionables").delete().eq("id", id);
+      await supabase
+        .from("actionables")
+        .delete()
+        .eq("id", id)
+        .eq("org_id", orgId!);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["actionables"] });
+      queryClient.invalidateQueries({ queryKey: ["actionables", orgId] });
     },
   });
 
@@ -92,12 +102,7 @@ export function ActionablesBoard() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
-      const { data: profile } = await supabase
-        .from("users")
-        .select("org_id")
-        .eq("id", user.id)
-        .single();
-      if (!profile?.org_id) throw new Error("No org");
+      if (!orgId) throw new Error("No org");
 
       await supabase.from("actionables").insert({
         title: newTitle,
@@ -105,13 +110,13 @@ export function ActionablesBoard() {
         priority: newPriority,
         status: "pending",
         user_id: user.id,
-        org_id: profile.org_id,
+        org_id: orgId,
         source_type: "manual",
       });
       trackEvent("actionable_created", { source: "manual" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["actionables"] });
+      queryClient.invalidateQueries({ queryKey: ["actionables", orgId] });
       setNewDialogOpen(false);
       setNewTitle("");
       setNewDescription("");

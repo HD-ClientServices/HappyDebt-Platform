@@ -15,6 +15,7 @@ import { CallAudioPlayer } from "@/components/audio/CallAudioPlayer";
 import { ExternalLink, Phone, Mail, Building2, Calendar } from "lucide-react";
 import { trackEvent } from "@/lib/plg";
 import { useEffect } from "react";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface LeadDetailModalProps {
   leadId: string | null;
@@ -29,14 +30,17 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
   }, [leadId]);
 
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
 
   const { data: lead, isLoading: leadLoading } = useQuery({
-    queryKey: ["lead-detail", leadId],
-    enabled: !!leadId,
+    queryKey: ["lead-detail", orgId, leadId],
+    enabled: !!leadId && !!orgId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leads")
         .select("*, closers(name, avatar_url)")
+        .eq("org_id", orgId!)
         .eq("id", leadId!)
         .single();
       if (error) throw error;
@@ -45,12 +49,13 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
   });
 
   const { data: calls, isLoading: callsLoading } = useQuery({
-    queryKey: ["lead-calls", leadId],
-    enabled: !!leadId,
+    queryKey: ["lead-calls", orgId, leadId],
+    enabled: !!leadId && !!orgId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("call_recordings")
         .select("*, closers(name)")
+        .eq("org_id", orgId!)
         .eq("lead_id", leadId!)
         .order("call_date", { ascending: false });
       if (error) throw error;
@@ -122,7 +127,7 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
                 <Badge variant="outline">
                   {lead.source === "client_upload"
                     ? "Your Leads"
-                    : "HappyDebt"}
+                    : "Intro"}
                 </Badge>
                 {lead.amount && (
                   <Badge variant="outline">

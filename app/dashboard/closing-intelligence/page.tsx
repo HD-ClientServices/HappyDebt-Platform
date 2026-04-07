@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 import dynamic from "next/dynamic";
 import { SuggestionsBanner } from "./SuggestionsBanner";
 import { CloserRankingPanel } from "./CloserRankingPanel";
@@ -36,12 +37,16 @@ const QACriteriaChart = dynamic(
 
 function AggregateKPIs() {
   const supabase = createClient();
+  const { data: userOrg } = useCurrentUserOrg();
+  const orgId = userOrg?.orgId;
   const { data, isLoading } = useQuery({
-    queryKey: ["voc-aggregate-kpis"],
+    queryKey: ["voc-aggregate-kpis", orgId],
+    enabled: !!orgId,
     queryFn: async () => {
       const { data: calls } = await supabase
         .from("call_recordings")
-        .select("evaluation_score, sentiment_score, is_critical");
+        .select("evaluation_score, sentiment_score, is_critical")
+        .eq("org_id", orgId!);
 
       if (!calls || calls.length === 0) {
         return { total: 0, avgScore: 0, avgSentiment: 0, critical: 0 };

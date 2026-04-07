@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,11 +21,14 @@ import {
   Plug2,
   AlertTriangle,
 } from "lucide-react";
+import type { GHLPipeline } from "@/lib/ghl/types";
+import { apiFetch } from "@/lib/api-client";
 
 interface OrgGHLSettings {
   id: string;
   ghl_api_token: string | null;
   ghl_location_id: string | null;
+  ghl_opening_pipeline_id: string | null;
   migration_pending?: boolean;
 }
 
@@ -34,6 +37,7 @@ export function GHLIntegrationSettings() {
 
   const [token, setToken] = useState("");
   const [locationId, setLocationId] = useState("");
+  const [openingPipelineId, setOpeningPipelineId] = useState<string>("");
   const [testStatus, setTestStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
@@ -43,7 +47,7 @@ export function GHLIntegrationSettings() {
   const { data: org, isLoading } = useQuery<OrgGHLSettings | null>({
     queryKey: ["org-ghl-settings"],
     queryFn: async () => {
-      const res = await fetch("/api/settings/ghl");
+      const res = await apiFetch("/api/settings/ghl");
       if (!res.ok) {
         if (res.status === 401) return null;
         return null;
@@ -60,15 +64,41 @@ export function GHLIntegrationSettings() {
     if (org.ghl_location_id) setLocationId(org.ghl_location_id);
   }
 
+  // Initialize pipeline ID separately (can be null initially)
+  const [pipelineInitialized, setPipelineInitialized] = useState(false);
+  useEffect(() => {
+    if (org && !pipelineInitialized) {
+      if (org.ghl_opening_pipeline_id) setOpeningPipelineId(org.ghl_opening_pipeline_id);
+      setPipelineInitialized(true);
+    }
+  }, [org, pipelineInitialized]);
+
+  const isConnected = !!(org?.ghl_api_token && org?.ghl_location_id);
+
+  // Fetch available pipelines once connected
+  const { data: pipelinesData, isLoading: pipelinesLoading } = useQuery<{
+    pipelines: GHLPipeline[];
+  }>({
+    queryKey: ["ghl-pipelines"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/pipeline/pipelines");
+      if (!res.ok) return { pipelines: [] };
+      return res.json();
+    },
+    enabled: isConnected,
+    refetchOnWindowFocus: false,
+  });
+
   // Save credentials via API route
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/settings/ghl", {
+      const res = await apiFetch("/api/settings/ghl", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ghl_api_token: token,
           ghl_location_id: locationId,
+          ghl_opening_pipeline_id: openingPipelineId || null,
         }),
       });
       if (!res.ok) {
@@ -79,6 +109,7 @@ export function GHLIntegrationSettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-ghl-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["ghl-pipelines"] });
     },
   });
 
@@ -126,7 +157,7 @@ export function GHLIntegrationSettings() {
   // Sync calls + opportunities
   const syncMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/pipeline/sync", { method: "POST" });
+      const res = await apiFetch("/api/pipeline/sync", { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Sync failed: ${res.status}`);
@@ -153,8 +184,8 @@ export function GHLIntegrationSettings() {
     );
   }
 
-  const isConnected = !!(org?.ghl_api_token && org?.ghl_location_id);
   const migrationPending = org?.migration_pending === true;
+  const pipelines = pipelinesData?.pipelines ?? [];
 
   return (
     <Card className="bg-zinc-900/80 border-zinc-800">
@@ -225,6 +256,35 @@ export function GHLIntegrationSettings() {
               onChange={(e) => setLocationId(e.target.value)}
               className="bg-zinc-800 border-zinc-700 font-mono text-sm"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ghl-opening-pipeline">Opening Pipeline</Label>
+            <select
+              id="ghl-opening-pipeline"
+              value={openingPipelineId}
+              onChange={(e) => setOpeningPipelineId(e.target.value)}
+              disabled={!isConnected || pipelinesLoading}
+              className="flex h-10 w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">
+                {!isConnected
+                  ? "Connect GHL first"
+                  : pipelinesLoading
+                    ? "Loading pipelines..."
+                    : pipelines.length === 0
+                      ? "No pipelines found"
+                      : "— Auto-detect by name —"}
+              </option>
+              {pipelines.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Sync only pulls won opportunities from this pipeline. If unset,
+              sync auto-detects pipelines whose name contains &quot;opening&quot;.
+            </p>
           </div>
         </div>
 
