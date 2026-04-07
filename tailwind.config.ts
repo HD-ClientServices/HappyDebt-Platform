@@ -12,11 +12,20 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
+        card: "var(--card)",
         border: "var(--border)",
         input: "var(--input)",
         ring: "var(--ring)",
         muted: "var(--muted)",
         "muted-foreground": "var(--muted-foreground)",
+        primary: "var(--primary)",
+        "primary-hover": "var(--primary-hover)",
+        "primary-foreground": "var(--primary-foreground)",
+      },
+      borderRadius: {
+        sm: "var(--radius-sm)",
+        md: "var(--radius-md)",
+        lg: "var(--radius-lg)",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Upload, FileText, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Upload, FileText, AlertCircle, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useLeadUpload } from "@/hooks/useLeadUpload";
 import { trackEvent } from "@/lib/plg";
 
@@ -24,6 +24,50 @@ interface ParsedLead {
   phone?: string;
   email?: string;
   business_name?: string;
+  _errors?: string[];
+  _warnings?: string[];
+}
+
+// Lightweight validators
+const PHONE_REGEX = /^[+]?[\d\s().-]{7,20}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateLead(lead: ParsedLead, phoneCount: Map<string, number>): {
+  errors: string[];
+  warnings: string[];
+} {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Name is required and must be at least 2 chars
+  if (!lead.name || lead.name.trim().length < 2) {
+    errors.push("Name is missing or too short");
+  }
+
+  // Phone format
+  if (lead.phone && lead.phone.trim().length > 0) {
+    if (!PHONE_REGEX.test(lead.phone.trim())) {
+      warnings.push("Phone format looks invalid");
+    }
+    const normalized = lead.phone.replace(/\D/g, "");
+    if (normalized && (phoneCount.get(normalized) ?? 0) > 1) {
+      errors.push("Duplicate phone in this file");
+    }
+  }
+
+  // Email format
+  if (lead.email && lead.email.trim().length > 0) {
+    if (!EMAIL_REGEX.test(lead.email.trim())) {
+      warnings.push("Email format looks invalid");
+    }
+  }
+
+  // Must have at least phone or email
+  if (!lead.phone && !lead.email) {
+    warnings.push("No phone or email — hard to contact");
+  }
+
+  return { errors, warnings };
 }
 
 export function LeadUploadDialog({ open, onOpenChange }: LeadUploadDialogProps) {
@@ -83,8 +127,26 @@ export function LeadUploadDialog({ open, onOpenChange }: LeadUploadDialogProps) 
       reader.onload = (e) => {
         try {
           const text = e.target?.result as string;
-          const leads = parseCSV(text);
-          setParsedLeads(leads);
+          const rawLeads = parseCSV(text);
+
+          // Build phone frequency map for duplicate detection
+          const phoneCount = new Map<string, number>();
+          for (const lead of rawLeads) {
+            if (lead.phone) {
+              const normalized = lead.phone.replace(/\D/g, "");
+              if (normalized) {
+                phoneCount.set(normalized, (phoneCount.get(normalized) ?? 0) + 1);
+              }
+            }
+          }
+
+          // Validate each lead
+          const validated = rawLeads.map((lead) => {
+            const { errors, warnings } = validateLead(lead, phoneCount);
+            return { ...lead, _errors: errors, _warnings: warnings };
+          });
+
+          setParsedLeads(validated);
         } catch (err) {
           setParseError(err instanceof Error ? err.message : "Failed to parse CSV");
           setParsedLeads([]);
@@ -104,14 +166,37 @@ export function LeadUploadDialog({ open, onOpenChange }: LeadUploadDialogProps) 
     [handleFile]
   );
 
+  const stats = useMemo(() => {
+    const errorCount = parsedLeads.filter((l) => (l._errors?.length ?? 0) > 0).length;
+    const warningCount = parsedLeads.filter(
+      (l) => (l._warnings?.length ?? 0) > 0 && (l._errors?.length ?? 0) === 0
+    ).length;
+    const valid = parsedLeads.length - errorCount;
+    return { errorCount, warningCount, valid };
+  }, [parsedLeads]);
+
   const handleUpload = async () => {
     if (parsedLeads.length === 0) return;
+
+    // Strip validation metadata and exclude rows with errors
+    const cleanLeads = parsedLeads
+      .filter((l) => (l._errors?.length ?? 0) === 0)
+      .map(({ _errors, _warnings, ...rest }) => {
+        void _errors;
+        void _warnings;
+        return rest;
+      });
+
+    if (cleanLeads.length === 0) return;
+
     try {
-      const result = await upload.mutateAsync(parsedLeads);
+      const result = await upload.mutateAsync(cleanLeads);
       trackEvent("leads_uploaded", {
         count: result.inserted,
         source: "csv",
         duplicates: result.duplicates,
+        errors: stats.errorCount,
+        warnings: stats.warningCount,
       });
       onOpenChange(false);
       setParsedLeads([]);
@@ -122,6 +207,15 @@ export function LeadUploadDialog({ open, onOpenChange }: LeadUploadDialogProps) 
   };
 
   const handleClose = () => {
+    // T7: Track abandonment if user had parsed leads but didn't confirm upload
+    if (parsedLeads.length > 0 && !upload.isSuccess) {
+      trackEvent("leads_upload_abandoned", {
+        parsed_count: parsedLeads.length,
+        errors: stats.errorCount,
+        warnings: stats.warningCount,
+      });
+    }
+
     onOpenChange(false);
     setParsedLeads([]);
     setFileName(null);
@@ -131,7 +225,7 @@ export function LeadUploadDialog({ open, onOpenChange }: LeadUploadDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg bg-zinc-950 border-zinc-800">
+      <DialogContent className="max-w-2xl bg-zinc-950 border-zinc-800">
         <DialogHeader>
           <DialogTitle className="font-heading">Upload Leads (CSV)</DialogTitle>
         </DialogHeader>
@@ -182,14 +276,35 @@ export function LeadUploadDialog({ open, onOpenChange }: LeadUploadDialogProps) 
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <FileText className="h-4 w-4" />
-              {fileName} — {parsedLeads.length} leads parsed
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <FileText className="h-4 w-4" />
+                {fileName} — {parsedLeads.length} parsed
+              </div>
+              <div className="flex gap-2">
+                {stats.valid > 0 && (
+                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-400 border-emerald-900/50">
+                    {stats.valid} valid
+                  </Badge>
+                )}
+                {stats.warningCount > 0 && (
+                  <Badge variant="secondary" className="bg-amber-500/10 text-amber-400 border-amber-900/50">
+                    {stats.warningCount} warnings
+                  </Badge>
+                )}
+                {stats.errorCount > 0 && (
+                  <Badge variant="destructive">
+                    {stats.errorCount} errors
+                  </Badge>
+                )}
+              </div>
             </div>
-            <div className="max-h-48 overflow-y-auto rounded-lg border border-zinc-800">
+
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-800">
               <table className="w-full text-xs">
-                <thead>
+                <thead className="sticky top-0 bg-zinc-950">
                   <tr className="border-b border-zinc-800">
+                    <th className="px-2 py-1.5 text-left font-medium w-6" />
                     <th className="px-2 py-1.5 text-left font-medium">Name</th>
                     <th className="px-2 py-1.5 text-left font-medium">Phone</th>
                     <th className="px-2 py-1.5 text-left font-medium">Email</th>
@@ -197,28 +312,62 @@ export function LeadUploadDialog({ open, onOpenChange }: LeadUploadDialogProps) 
                   </tr>
                 </thead>
                 <tbody>
-                  {parsedLeads.slice(0, 10).map((lead, i) => (
-                    <tr key={i} className="border-b border-zinc-800/50">
-                      <td className="px-2 py-1">{lead.name}</td>
-                      <td className="px-2 py-1 text-muted-foreground">
-                        {lead.phone || "—"}
-                      </td>
-                      <td className="px-2 py-1 text-muted-foreground">
-                        {lead.email || "—"}
-                      </td>
-                      <td className="px-2 py-1 text-muted-foreground">
-                        {lead.business_name || "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {parsedLeads.slice(0, 50).map((lead, i) => {
+                    const hasError = (lead._errors?.length ?? 0) > 0;
+                    const hasWarning = (lead._warnings?.length ?? 0) > 0;
+                    const tooltip = [...(lead._errors ?? []), ...(lead._warnings ?? [])].join(" · ");
+                    return (
+                      <tr
+                        key={i}
+                        className={
+                          hasError
+                            ? "border-b border-zinc-800/50 bg-red-950/20"
+                            : hasWarning
+                              ? "border-b border-zinc-800/50 bg-amber-950/10"
+                              : "border-b border-zinc-800/50"
+                        }
+                        title={tooltip || undefined}
+                      >
+                        <td className="px-2 py-1">
+                          {hasError ? (
+                            <AlertCircle className="h-3.5 w-3.5 text-red-400" />
+                          ) : hasWarning ? (
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                          ) : (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400/60" />
+                          )}
+                        </td>
+                        <td className="px-2 py-1">{lead.name}</td>
+                        <td className="px-2 py-1 text-muted-foreground">
+                          {lead.phone || "—"}
+                        </td>
+                        <td className="px-2 py-1 text-muted-foreground">
+                          {lead.email || "—"}
+                        </td>
+                        <td className="px-2 py-1 text-muted-foreground">
+                          {lead.business_name || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              {parsedLeads.length > 10 && (
-                <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                  ...and {parsedLeads.length - 10} more
+              {parsedLeads.length > 50 && (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground border-t border-zinc-800">
+                  ...and {parsedLeads.length - 50} more rows (validation applied to all)
                 </p>
               )}
             </div>
+
+            {stats.errorCount > 0 && (
+              <div className="flex items-start gap-2 text-xs text-red-400 rounded-md bg-red-950/20 border border-red-900/50 p-2">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  Rows with errors will be skipped. Fix your CSV to upload them.
+                </span>
+              </div>
+            )}
+
             {upload.isError && (
               <div className="flex items-center gap-2 text-red-400 text-sm">
                 <AlertCircle className="h-4 w-4" />
@@ -228,32 +377,31 @@ export function LeadUploadDialog({ open, onOpenChange }: LeadUploadDialogProps) 
           </div>
         )}
 
-        <DialogFooter>
-          {!upload.isSuccess && parsedLeads.length > 0 && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-zinc-700"
-                onClick={() => {
-                  setParsedLeads([]);
-                  setFileName(null);
-                }}
-              >
-                Change file
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleUpload}
-                disabled={upload.isPending}
-              >
-                {upload.isPending
-                  ? "Uploading..."
-                  : `Upload ${parsedLeads.length} leads`}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
+        {!upload.isSuccess && parsedLeads.length > 0 && (
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-zinc-700"
+              onClick={() => {
+                setParsedLeads([]);
+                setFileName(null);
+              }}
+            >
+              Change file
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleUpload}
+              disabled={upload.isPending || stats.valid === 0}
+              className="bg-primary hover:bg-primary-hover text-primary-foreground"
+            >
+              {upload.isPending
+                ? "Uploading..."
+                : `Upload ${stats.valid} lead${stats.valid !== 1 ? "s" : ""}`}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

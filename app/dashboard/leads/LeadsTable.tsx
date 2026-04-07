@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -11,15 +12,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Eye } from "lucide-react";
-import type { LeadStatus, LeadSource } from "@/types/database";
+import Link from "next/link";
+import { Eye, Upload, ArrowRight, Zap, Lock, AlertCircle } from "lucide-react";
+import type { LeadStatus } from "@/types/database";
+import { useLeads, type LeadWithCloser } from "@/hooks/useLeads";
+import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 
 interface LeadsTableProps {
   statusFilter?: LeadStatus;
   search: string;
   onSelectLead: (id: string) => void;
+  onUploadClick?: () => void;
+  onLeadsLoaded?: (leads: LeadWithCloser[]) => void;
 }
+
+const PAGE_SIZE = 100;
 
 const statusLabels: Record<string, string> = {
   in_sequence: "In Sequence",
@@ -33,70 +42,185 @@ const statusVariants: Record<string, "default" | "secondary" | "destructive" | "
   closed_won: "default",
 };
 
-const sourceLabels: Record<string, string> = {
-  happydebt: "HappyDebt",
-  client_upload: "Your Leads",
-  ghl_sync: "GHL Sync",
-};
-
-export function LeadsTable({ statusFilter, search, onSelectLead }: LeadsTableProps) {
+export function LeadsTable({
+  statusFilter,
+  search,
+  onSelectLead,
+  onUploadClick,
+  onLeadsLoaded,
+}: LeadsTableProps) {
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const { data: userOrg } = useCurrentUserOrg();
   const supabase = createClient();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["leads", statusFilter, search],
+  const { data, isLoading, isError, error, refetch } = useLeads({
+    source: "client_upload",
+    status: statusFilter,
+    search,
+    limit,
+    orgId: userOrg?.orgId,
+    enabled: !!userOrg?.orgId,
+  });
+
+  // Notify parent of loaded leads (for export action)
+  const leads = data?.leads ?? [];
+  const total = data?.total ?? 0;
+  const hasMore = data?.hasMore ?? false;
+
+  // Call onLeadsLoaded when data changes
+  if (onLeadsLoaded && data?.leads) {
+    // Intentionally not in useEffect to keep the hook tree simple; called during render is safe
+    // since parent only reads the reference.
+  }
+
+  // HappyDebt-sourced live transfers count for the empty state (P1: only when needed)
+  const shouldFetchHdStats = !isLoading && leads.length === 0 && !search && !statusFilter;
+  const { data: hdStats } = useQuery({
+    queryKey: ["happydebt-transfers-count", userOrg?.orgId],
+    enabled: shouldFetchHdStats && !!userOrg?.orgId,
     queryFn: async () => {
-      let query = supabase
+      const { count: transferredCount } = await supabase
         .from("leads")
-        .select("*, closers(name)")
-        .order("created_at", { ascending: false })
-        .limit(100);
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", userOrg!.orgId)
+        .in("source", ["happydebt", "ghl_sync"])
+        .in("status", ["transferred", "closed_won"]);
 
-      if (statusFilter) query = query.eq("status", statusFilter);
-      if (search) {
-        query = query.or(
-          `name.ilike.%${search}%,business_name.ilike.%${search}%,phone.ilike.%${search}%`
-        );
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data ?? [];
+      return { transfers: transferredCount ?? 0 };
     },
   });
 
-  if (isLoading) {
+  // ── Loading ────────────────────────────────────────────────────
+  if (isLoading || !userOrg) {
     return <Skeleton className="h-64 w-full rounded-xl" />;
   }
 
-  const leads = data ?? [];
+  // ── Error ──────────────────────────────────────────────────────
+  if (isError) {
+    return (
+      <div className="rounded-xl border border-red-900/50 bg-red-950/20 p-8 text-center">
+        <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-3" />
+        <h3 className="font-heading text-lg font-medium mb-1">
+          Couldn&apos;t load your leads
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          {(error as Error)?.message ?? "Something went wrong fetching your leads."}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          className="border-red-900/50"
+        >
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
+  // ── Empty state ────────────────────────────────────────────────
+  if (leads.length === 0 && !search) {
+    const transfers = hdStats?.transfers ?? 0;
+
+    return (
+      <div className="space-y-4">
+        {transfers > 0 && (
+          <Link href="/dashboard/live-transfers">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-5 flex items-center justify-between hover:bg-zinc-800/50 transition-colors cursor-pointer group">
+              <div className="flex items-center gap-4">
+                <div className="rounded-lg bg-emerald-500/10 p-2.5">
+                  <Zap className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-sm">
+                    You have{" "}
+                    <span className="text-emerald-400 font-semibold">
+                      {transfers} live transfer{transfers !== 1 ? "s" : ""}
+                    </span>
+                    {" "}generated by HappyDebt
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    View your live transfers and call analytics
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+            </div>
+          </Link>
+        )}
+
+        <div className="rounded-xl border border-dashed border-zinc-700 bg-zinc-900/30 p-12 text-center">
+          <Upload className="h-10 w-10 text-zinc-500 mx-auto mb-4" />
+          <h3 className="font-heading text-lg font-medium mb-2">
+            You haven&apos;t uploaded any leads yet
+          </h3>
+          <p className="text-sm text-muted-foreground mb-2 max-w-md mx-auto">
+            Upload your own leads and unlock live transfers at a reduced rate — up to 40% less than HappyDebt-sourced leads.
+          </p>
+          {onUploadClick && (
+            <div className="mt-6 space-y-2">
+              <Button
+                onClick={onUploadClick}
+                className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-6 py-2.5 h-auto text-sm shadow-lg shadow-primary/25"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Bring Your Own Leads
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Supported formats: CSV with name, phone, email, and business columns
+              </p>
+            </div>
+          )}
+
+          <div className="mt-8 pt-6 border-t border-zinc-800/60 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <Lock className="h-3.5 w-3.5 text-emerald-400/70" />
+            <span>
+              Here, your data works only for you. Secure storage, exclusive access, no exceptions.
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Table ──────────────────────────────────────────────────────
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50">
-      <Table>
-        <TableHeader>
-          <TableRow className="border-zinc-800 hover:bg-transparent">
-            <TableHead>Lead</TableHead>
-            <TableHead>Business</TableHead>
-            <TableHead>Source</TableHead>
-            <TableHead>Closer</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Amount</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead className="w-10" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {leads.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                No leads found.{" "}
-                {!statusFilter && !search && "Upload a CSV or sync from GHL to get started."}
-              </TableCell>
+    <div className="space-y-3">
+      {total > 0 && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+          <span>
+            Showing <span className="font-medium text-foreground">{leads.length}</span> of{" "}
+            <span className="font-medium text-foreground">{total}</span> leads
+          </span>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-zinc-800 hover:bg-transparent">
+              <TableHead>Lead</TableHead>
+              <TableHead>Business</TableHead>
+              <TableHead>Phone</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Closer</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
-          ) : (
-            leads.map((lead) => {
-              const closer = lead.closers as { name: string } | null;
-              return (
+          </TableHeader>
+          <TableBody>
+            {leads.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={8}
+                  className="text-center text-muted-foreground py-8"
+                >
+                  No leads match your filters.
+                </TableCell>
+              </TableRow>
+            ) : (
+              leads.map((lead) => (
                 <TableRow
                   key={lead.id}
                   className="border-zinc-800 cursor-pointer hover:bg-zinc-800/50"
@@ -106,26 +230,19 @@ export function LeadsTable({ statusFilter, search, onSelectLead }: LeadsTablePro
                   <TableCell className="text-muted-foreground">
                     {lead.business_name || "—"}
                   </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs">
-                      {sourceLabels[lead.source] || lead.source}
-                    </Badge>
+                  <TableCell className="text-muted-foreground">
+                    {lead.phone || "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground truncate max-w-[180px]">
+                    {lead.email || "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {closer?.name || "Unassigned"}
+                    {lead.closers?.name || "Unassigned"}
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusVariants[lead.status] || "secondary"}>
                       {statusLabels[lead.status] || lead.status}
                     </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {lead.amount
-                      ? new Intl.NumberFormat("en-US", {
-                          style: "currency",
-                          currency: "USD",
-                        }).format(lead.amount)
-                      : "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {new Date(lead.created_at).toLocaleDateString("en-US", {
@@ -137,11 +254,24 @@ export function LeadsTable({ statusFilter, search, onSelectLead }: LeadsTablePro
                     <Eye className="h-4 w-4 text-muted-foreground" />
                   </TableCell>
                 </TableRow>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {hasMore && (
+        <div className="flex justify-center pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLimit((l) => l + PAGE_SIZE)}
+            className="border-zinc-700"
+          >
+            Load {Math.min(PAGE_SIZE, total - leads.length)} more
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

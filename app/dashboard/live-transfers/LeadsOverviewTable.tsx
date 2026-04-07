@@ -100,7 +100,7 @@ export function LeadsOverviewTable() {
           {(leads ?? []).length === 0 ? (
             <TableRow>
               <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                No leads this month. Upload leads or sync from GHL.
+                No leads this month.
               </TableCell>
             </TableRow>
           ) : (
@@ -136,7 +136,7 @@ export function LeadsOverviewTable() {
                           ? "Your Leads"
                           : lead.source === "happydebt"
                             ? "HappyDebt"
-                            : "GHL"}
+                            : "HappyDebt"}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
