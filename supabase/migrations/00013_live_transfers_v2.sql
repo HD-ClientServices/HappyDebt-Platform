@@ -36,19 +36,46 @@ CREATE INDEX IF NOT EXISTS idx_live_transfers_ghl_contact_id
 ON public.live_transfers(ghl_contact_id)
 WHERE ghl_contact_id IS NOT NULL;
 
--- ── 2. organizations: per-org GHL config ─────────────────────────────
+-- ── 2. organizations: per-org GHL config (LEGACY — see 00015) ───────
+--
+-- Historical note: this migration originally added three per-org GHL
+-- columns. A later migration (00015_unify_ghl_integration) collapsed
+-- them into a singleton table and DROPped the columns from
+-- `organizations`. If this file is re-run AFTER 00015 — e.g. by an
+-- operator retrying the migration manually, or by an automated runner
+-- replaying the full history on a snapshot restore — the UPDATE below
+-- would crash on the first column reference.
+--
+-- The ALTER + UPDATE are now wrapped in idempotent guards:
+--   - ADD COLUMN IF NOT EXISTS handles the add side.
+--   - The UPDATE runs inside a DO $$ ... END $$ block that first
+--     checks `information_schema.columns` to confirm the column still
+--     exists in this database. If 00015 has already dropped it, the
+--     block is a no-op and the rest of 00013 continues cleanly.
 
 ALTER TABLE public.organizations
 ADD COLUMN IF NOT EXISTS ghl_closing_pipeline_id text,
 ADD COLUMN IF NOT EXISTS ghl_reconnect_webhook_url text;
 
--- Configure Rise with verified pipeline IDs and webhook URL
-UPDATE public.organizations
-SET
-  ghl_opening_pipeline_id = '85kFh5EWKPg7qg9FDJfg',
-  ghl_closing_pipeline_id = 'xXSPcEgGwRNwxndym0c7',
-  ghl_reconnect_webhook_url = 'https://services.leadconnectorhq.com/hooks/NXZFG9aQz6r1UXzZoedy/webhook-trigger/5d3a789a-00c6-4b7d-adf0-fdc3aa1f1126'
-WHERE slug = 'rise';
+-- Configure Rise with verified pipeline IDs and webhook URL — only
+-- runs if the legacy per-org columns are still present.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'organizations'
+      AND column_name = 'ghl_opening_pipeline_id'
+  ) THEN
+    UPDATE public.organizations
+    SET
+      ghl_opening_pipeline_id = '85kFh5EWKPg7qg9FDJfg',
+      ghl_closing_pipeline_id = 'xXSPcEgGwRNwxndym0c7',
+      ghl_reconnect_webhook_url = 'https://services.leadconnectorhq.com/hooks/NXZFG9aQz6r1UXzZoedy/webhook-trigger/5d3a789a-00c6-4b7d-adf0-fdc3aa1f1126'
+    WHERE slug = 'rise';
+  END IF;
+END $$;
 
 -- ── 3. live_transfer_feedback table ──────────────────────────────────
 
