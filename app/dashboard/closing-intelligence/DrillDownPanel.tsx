@@ -19,13 +19,42 @@ import { trackEvent } from "@/lib/plg";
 import { useEffect } from "react";
 import { Eye, Clock, User } from "lucide-react";
 import Link from "next/link";
+import type { QAAnalysisResultV2 } from "@/lib/openai/types";
 
-/** Filter shape used to query calls for the drill-down view. */
+/**
+ * Filter shape used to query calls for the drill-down view.
+ *
+ * `scoreType` values (V2):
+ *   - "exceptional"  pillar score 8-10
+ *   - "developing"   pillar score 5-7
+ *   - "poor"         pillar score 1-4
+ *
+ * Legacy values ("good" / "partial" / "missed") are still accepted for
+ * backward compat with any bookmarked or cached drill-down state, and
+ * are mapped to V2 buckets inside the client-side filter below.
+ */
 export interface DrillDownFilter {
   closerId?: string;
   date?: string;
   criterionName?: string;
   scoreType?: string;
+}
+
+/** Map a V2 pillar score (1-10) to a bucket label. */
+function scoreToBucket(score: number): "exceptional" | "developing" | "poor" {
+  if (score >= 8) return "exceptional";
+  if (score >= 5) return "developing";
+  return "poor";
+}
+
+/** Normalize legacy scoreType strings into V2 buckets. */
+function normalizeScoreType(
+  raw: string
+): "exceptional" | "developing" | "poor" {
+  const s = raw.toLowerCase();
+  if (s === "exceptional" || s === "good") return "exceptional";
+  if (s === "developing" || s === "partial") return "developing";
+  return "poor";
 }
 
 interface DrillDownPanelProps {
@@ -69,7 +98,7 @@ export function DrillDownPanel({ open, onClose, title, filter }: DrillDownPanelP
       let query = supabase
         .from("call_recordings")
         .select(
-          "id, call_date, closer_id, evaluation_score, sentiment_score, duration_seconds, recording_url, criteria_scores, contact_name, business_name"
+          "id, call_date, closer_id, evaluation_score, sentiment_score, duration_seconds, recording_url, ai_analysis, contact_name, business_name"
         )
         .eq("org_id", orgId!)
         .order("call_date", { ascending: false })
@@ -86,19 +115,28 @@ export function DrillDownPanel({ open, onClose, title, filter }: DrillDownPanelP
         query = query.gte("call_date", dayStart).lte("call_date", dayEnd);
       }
 
-      // criterionName + scoreType filtering is done client-side because
-      // criteria_scores is a JSONB column with varying key names.
+      // Pillar filtering happens client-side: we need to walk
+      // ai_analysis.pillars[] and compare the score of the matching
+      // pillar name against the requested bucket.
       const { data } = await query;
       let results = data ?? [];
 
       if (filter.criterionName && filter.scoreType) {
+        const targetBucket = normalizeScoreType(filter.scoreType);
+        const targetName = filter.criterionName.toLowerCase();
+
         results = results.filter((call) => {
-          const scores = call.criteria_scores as Record<string, string> | null;
-          if (!scores) return false;
-          const values = Object.entries(scores);
-          return values.some(([_key, val]) => {
-            const v = (val || "").toLowerCase();
-            return v.includes(filter.scoreType!.toLowerCase());
+          const analysis = call.ai_analysis as Record<string, unknown> | null;
+          if (!analysis) return false;
+          if (analysis.version !== "v2-5-pillars-gpt4o") return false;
+
+          const pillars = (analysis as unknown as QAAnalysisResultV2).pillars;
+          if (!Array.isArray(pillars)) return false;
+
+          return pillars.some((p) => {
+            if (!p?.name || typeof p.score !== "number") return false;
+            if (p.name.toLowerCase() !== targetName) return false;
+            return scoreToBucket(p.score) === targetBucket;
           });
         });
       }

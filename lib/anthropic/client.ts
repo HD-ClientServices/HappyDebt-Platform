@@ -1,4 +1,20 @@
 /**
+ * @deprecated LEGACY — no longer wired into the pipeline.
+ *
+ * The active QA analyzer is `lib/openai/client.ts` (GPT-4o with the
+ * 5-pillar prompt replicating the Rise Alliance n8n workflow). This file
+ * is kept as a historical reference for the old Claude-based
+ * good/partial/missed scoring, but:
+ *   - `lib/pipeline/process-call.ts` no longer imports from it
+ *   - `ANTHROPIC_API_KEY` is no longer required to run the pipeline
+ *   - None of the UI components consume its output shape anymore
+ *
+ * Safe to delete in a future cleanup PR. Left in place only so the
+ * anthropic/computeWeightedScore implementation can be re-read if we
+ * ever need to support per-org evaluation templates again.
+ */
+
+/**
  * Anthropic Claude integration for call QA analysis.
  * Supports dynamic evaluation templates per organization.
  */

@@ -371,20 +371,15 @@ async function syncOpportunities(
     if (cid) closingByContactId.set(cid, opp);
   }
 
-  // ── Fetch existing transfers in one query for fast dedup ──
-  const { data: existingTransfers } = await adminSupabase
-    .from("live_transfers")
-    .select("id, ghl_opportunity_id")
-    .eq("org_id", orgId)
-    .not("ghl_opportunity_id", "is", null);
-
-  const existingByOppId = new Map(
-    (existingTransfers || []).map((t) => [t.ghl_opportunity_id, t.id])
-  );
-
+  // ── Build the full set of rows to upsert ──────────────────────────
+  // Strategy: build every row from the GHL won-opps list, then UPSERT
+  // on `ghl_opportunity_id` (which is UNIQUE in the DB). This removes
+  // the need to pre-fetch existing transfers — PostgreSQL handles the
+  // insert-or-update decision atomically, which also eliminates the
+  // duplicate-key errors that appeared when the sync ran in parallel
+  // (auto-sync + manual sync, or StrictMode double-mount).
   const syncedOppIds = new Set<string>();
-  const toInsert: Record<string, unknown>[] = [];
-  const toUpdate: { id: string; data: Record<string, unknown> }[] = [];
+  const rows: Record<string, unknown>[] = [];
 
   for (const opp of openingWonOpps) {
     syncedOppIds.add(opp.id);
@@ -406,7 +401,7 @@ async function syncOpportunities(
       } else {
         // status is open/abandoned — check stage for DQ Lead
         const stageName = closing.pipelineStageId
-          ? closingStageNameById.get(closing.pipelineStageId) ?? ""
+          ? (closingStageNameById.get(closing.pipelineStageId) ?? "")
           : "";
         if (stageName.toLowerCase().includes("dq")) {
           closingStatus = "disqualified";
@@ -429,7 +424,7 @@ async function syncOpportunities(
       opp.updatedAt ??
       opp.createdAt;
 
-    const transferData = {
+    rows.push({
       org_id: orgId,
       closer_id: closerId,
       lead_name: opp.contact?.name || opp.name || "Unknown Lead",
@@ -443,55 +438,72 @@ async function syncOpportunities(
       amount: opp.monetaryValue || 0,
       ghl_opportunity_id: opp.id,
       ghl_contact_id: contactId,
-    };
+    });
+  }
 
-    const existingId = existingByOppId.get(opp.id);
-    if (existingId) {
-      toUpdate.push({ id: existingId, data: transferData });
+  // ── UPSERT in chunks ──────────────────────────────────────────────
+  // Upsert with `onConflict: 'ghl_opportunity_id'` — the UNIQUE index
+  // on that column (from 00001_initial_schema.sql + 00003_ghl_integration.sql)
+  // lets Postgres decide insert vs update per row atomically.
+  let upserted = 0;
+  if (rows.length > 0) {
+    for (let i = 0; i < rows.length; i += 100) {
+      const chunk = rows.slice(i, i + 100);
+      const { error, count } = await adminSupabase
+        .from("live_transfers")
+        .upsert(chunk, {
+          onConflict: "ghl_opportunity_id",
+          count: "exact",
+        });
+      if (error) {
+        console.error("[sync] Upsert error:", error.message);
+      } else {
+        upserted += count ?? chunk.length;
+      }
+    }
+  }
+
+  // ── Clean up stale rows in ONE DB-level delete (no pagination) ────
+  // Previously we fetched existing rows first, diffed them client-side,
+  // and deleted by id — but PostgREST caps row fetches at 1000 by
+  // default, so the diff was blind to any stale rows beyond that limit
+  // (we once had 12k+ orphaned rows lingering after a legacy script).
+  //
+  // This single DELETE uses `.not('ghl_opportunity_id', 'in', (...))`
+  // so Postgres removes every row in the org that doesn't correspond
+  // to a current GHL won-opp. No row-count limit.
+  let cleanedCount = 0;
+  if (syncedOppIds.size > 0) {
+    const syncedList = Array.from(syncedOppIds);
+    // PostgREST encodes the IN list in the URL query string. With
+    // 200 opp-ids at ~24 chars each + overhead, this stays well under
+    // typical server URL limits. If the opening pipeline ever grows
+    // past a few thousand won-opps, split syncedList into chunks and
+    // run multiple deletes with NOT IN (chunk1) AND NOT IN (chunk2).
+    const { error: delError, count } = await adminSupabase
+      .from("live_transfers")
+      .delete({ count: "exact" })
+      .eq("org_id", orgId)
+      .not("ghl_opportunity_id", "in", `(${syncedList.join(",")})`);
+
+    if (delError) {
+      console.error("[sync] Stale cleanup error:", delError.message);
     } else {
-      toInsert.push(transferData);
+      cleanedCount = count ?? 0;
+      if (cleanedCount > 0) {
+        console.log(`[sync] Cleaned up ${cleanedCount} stale live_transfers`);
+      }
     }
+  } else {
+    // No won opps came back from GHL — don't nuke the whole table.
+    console.warn(
+      "[sync] Opening pipeline returned 0 won opps; skipping stale cleanup"
+    );
   }
 
-  // ── Batch insert new transfers ──
-  if (toInsert.length > 0) {
-    for (let i = 0; i < toInsert.length; i += 50) {
-      const chunk = toInsert.slice(i, i + 50);
-      const { error } = await adminSupabase.from("live_transfers").insert(chunk);
-      if (error) console.error("[sync] Batch transfer insert error:", error.message);
-    }
-  }
-
-  // ── Batch update existing transfers ──
-  if (toUpdate.length > 0) {
-    const updateBatchSize = 10;
-    for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
-      const batch = toUpdate.slice(i, i + updateBatchSize);
-      await Promise.all(
-        batch.map((item) =>
-          adminSupabase
-            .from("live_transfers")
-            .update(item.data)
-            .eq("id", item.id)
-        )
-      );
-    }
-  }
-
-  // ── Clean up stale transfers (opps that no longer exist as won in opening) ──
-  const staleIds = (existingTransfers || [])
-    .filter((t) => t.ghl_opportunity_id && !syncedOppIds.has(t.ghl_opportunity_id))
-    .map((t) => t.id);
-
-  if (staleIds.length > 0) {
-    await adminSupabase.from("live_transfers").delete().in("id", staleIds);
-    console.log(`[sync] Cleaned up ${staleIds.length} stale live_transfers`);
-  }
-
-  const transfersSynced = toInsert.length + toUpdate.length;
   console.log(
-    `[sync] Synced ${transfersSynced} transfers (${toInsert.length} new, ${toUpdate.length} updated)`
+    `[sync] Synced ${upserted} transfers via upsert (cleaned ${cleanedCount} stale)`
   );
 
-  return { transfersSynced, warning: null };
+  return { transfersSynced: upserted, warning: null };
 }

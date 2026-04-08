@@ -19,17 +19,33 @@ import { CallAudioPlayer } from "@/components/audio/CallAudioPlayer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { CallDetailModal } from "./CallDetailModal";
-import { Eye, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Eye } from "lucide-react";
+import type { QAAnalysisResultV2, QAPillarResult } from "@/lib/openai/types";
 
-const miniScore = (score: string | undefined) => {
-  if (!score) return null;
-  const s = score.toLowerCase();
-  if (s.includes("good"))
-    return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
-  if (s.includes("partial"))
-    return <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />;
-  return <XCircle className="h-3.5 w-3.5 text-red-500" />;
-};
+/**
+ * Return a colored pill for a single pillar score.
+ * Visual legend:
+ *   🟢 exceptional  8-10
+ *   🟡 developing   5-7
+ *   🔴 poor         1-4
+ */
+function pillarDot(score: number): string {
+  if (score >= 8) return "bg-emerald-500";
+  if (score >= 5) return "bg-yellow-500";
+  return "bg-red-500";
+}
+
+/** Typed helper: pull pillars out of the JSONB ai_analysis column. */
+function extractPillars(analysis: unknown): QAPillarResult[] {
+  if (
+    !!analysis &&
+    typeof analysis === "object" &&
+    (analysis as { version?: string }).version === "v2-5-pillars-gpt4o"
+  ) {
+    return (analysis as QAAnalysisResultV2).pillars || [];
+  }
+  return [];
+}
 
 export function CriticalCallsPanel() {
   const supabase = createClient();
@@ -44,7 +60,7 @@ export function CriticalCallsPanel() {
       const { data } = await supabase
         .from("call_recordings")
         .select(
-          "id, call_date, closer_id, evaluation_score, sentiment_score, duration_seconds, recording_url, critical_action_plan, strengths, improvement_areas, criteria_scores, contact_name, business_name"
+          "id, call_date, closer_id, evaluation_score, sentiment_score, duration_seconds, recording_url, critical_action_plan, strengths, improvement_areas, ai_analysis, contact_name, business_name"
         )
         .eq("org_id", orgId!)
         .eq("is_critical", true)
@@ -104,13 +120,7 @@ export function CriticalCallsPanel() {
                 </TableHeader>
                 <TableBody>
                   {(calls ?? []).map((row) => {
-                    const criteria = row.criteria_scores as Record<
-                      string,
-                      string
-                    > | null;
-                    const criteriaValues = criteria
-                      ? Object.values(criteria)
-                      : [];
+                    const pillars = extractPillars(row.ai_analysis);
 
                     return (
                       <TableRow key={row.id} className="border-zinc-800">
@@ -136,12 +146,14 @@ export function CriticalCallsPanel() {
                             : "—"}
                         </TableCell>
                         <TableCell>
-                          {criteriaValues.length > 0 ? (
+                          {pillars.length > 0 ? (
                             <div className="flex items-center gap-1 justify-center">
-                              {criteriaValues.map((s, i) => (
-                                <span key={i} title={`Criterion ${i + 1}: ${s}`}>
-                                  {miniScore(s)}
-                                </span>
+                              {pillars.map((p, i) => (
+                                <span
+                                  key={i}
+                                  title={`${p.name}: ${p.score}/10`}
+                                  className={`h-2.5 w-2.5 rounded-full ${pillarDot(p.score)}`}
+                                />
                               ))}
                             </div>
                           ) : (

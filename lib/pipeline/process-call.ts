@@ -3,16 +3,22 @@
  * Replicates the n8n workflow:
  *   GHL webhook → wait → fetch conversation → download recording → transcribe → Claude QA → store
  *
- * Transcription strategy:
+ * Transcription strategy (cascade):
  *   1. Try GHL's built-in transcription first (free)
- *   2. Fall back to OpenAI Whisper if available
- *   3. Fail if neither works
+ *   2. Fall back to Deepgram Nova-3 with language=multi (preferred — no
+ *      25MB limit, auto-detects Spanish/English, cheaper, faster)
+ *   3. Fall back to OpenAI Whisper (legacy — 25MB limit, hardcoded
+ *      language=en, kept for back-compat only)
+ *   4. Fail if none of the above work
  *
  * QA analysis: Claude (Anthropic) with dynamic evaluation templates per org
  */
 
 import { GHLClient } from "@/lib/ghl/client";
-import { analyzeCallQA, computeWeightedScore } from "@/lib/anthropic/client";
+// V2 analyzer: GPT-4o with 5-pillar 1–10 scoring. Replaces the legacy
+// Anthropic good/partial/missed analyzer (still at `lib/anthropic/client.ts`
+// but no longer wired into the pipeline). See `lib/openai/client.ts`.
+import { analyzeCallQA } from "@/lib/openai/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 interface ProcessCallPayload {
@@ -60,31 +66,93 @@ async function updateJobStatus(
 
 /**
  * Get transcript for a call message.
- * Strategy: GHL built-in transcription → OpenAI Whisper fallback → error
+ *
+ * Cascade strategy:
+ *   1. GHL built-in transcription (free, if populated)
+ *   2. Deepgram Nova-3 with language=multi (preferred fallback)
+ *   3. OpenAI Whisper (legacy fallback)
+ *   4. Error if none available
+ *
+ * The audio buffer is downloaded only once and reused across Deepgram
+ * and Whisper attempts.
  */
 async function getTranscript(
   ghl: GHLClient,
   messageId: string
 ): Promise<string> {
   // 1. Try GHL built-in transcription (free)
-  console.log(`[pipeline] Trying GHL transcription for message ${messageId}...`);
+  console.log(
+    `[pipeline] Trying GHL transcription for message ${messageId}...`
+  );
   const ghlTranscript = await ghl.getTranscription(messageId);
   if (ghlTranscript && ghlTranscript.trim().length > 10) {
-    console.log(`[pipeline] GHL transcription found (${ghlTranscript.length} chars)`);
+    console.log(
+      `[pipeline] GHL transcription found (${ghlTranscript.length} chars)`
+    );
     return ghlTranscript;
   }
 
-  // 2. Fall back to OpenAI Whisper if API key is set
-  if (process.env.OPENAI_API_KEY) {
-    console.log(`[pipeline] GHL transcription empty, falling back to Whisper...`);
-    const { transcribeAudio } = await import("@/lib/openai/client");
-    const audioBuffer = await ghl.downloadRecording(messageId);
-    return transcribeAudio(audioBuffer);
+  const hasDeepgram = !!process.env.DEEPGRAM_API_KEY;
+  const hasWhisper = !!process.env.OPENAI_API_KEY;
+
+  if (!hasDeepgram && !hasWhisper) {
+    throw new Error(
+      "No transcription available: GHL transcription empty and neither DEEPGRAM_API_KEY nor OPENAI_API_KEY are set"
+    );
   }
 
-  // 3. No transcription available
+  // Download the recording once and share it across fallback providers.
+  console.log(
+    `[pipeline] GHL transcription empty, downloading recording for external transcription...`
+  );
+  const audioBuffer = await ghl.downloadRecording(messageId);
+  const sizeMb = audioBuffer.byteLength / (1024 * 1024);
+  console.log(
+    `[pipeline] Downloaded ${sizeMb.toFixed(1)} MB audio, attempting transcription`
+  );
+
+  // 2. Deepgram (preferred): no 25MB limit, multi-language auto-detect.
+  if (hasDeepgram) {
+    try {
+      console.log(`[pipeline] Trying Deepgram Nova-3...`);
+      const { transcribeAudio: deepgramTranscribe } = await import(
+        "@/lib/deepgram/client"
+      );
+      const result = await deepgramTranscribe(audioBuffer);
+      if (result.transcript && result.transcript.trim().length > 0) {
+        console.log(
+          `[pipeline] Deepgram OK (${result.transcript.length} chars, lang=${result.detectedLanguage ?? "?"}, confidence=${result.confidence?.toFixed(2) ?? "?"})`
+        );
+        return result.transcript;
+      }
+      console.warn(
+        "[pipeline] Deepgram returned empty transcript, trying next fallback"
+      );
+    } catch (err) {
+      console.warn(
+        "[pipeline] Deepgram error:",
+        err instanceof Error ? err.message : String(err)
+      );
+      // fall through to Whisper if configured
+    }
+  }
+
+  // 3. Whisper (legacy). 25MB hard limit + language=en hardcoded.
+  if (hasWhisper) {
+    if (sizeMb > 24) {
+      throw new Error(
+        `Audio file is ${sizeMb.toFixed(1)}MB which exceeds Whisper's 25MB limit. Configure DEEPGRAM_API_KEY to handle large files.`
+      );
+    }
+    console.log(`[pipeline] Falling back to Whisper...`);
+    const { transcribeAudio: whisperTranscribe } = await import(
+      "@/lib/openai/client"
+    );
+    return whisperTranscribe(audioBuffer);
+  }
+
   throw new Error(
-    "No transcription available: GHL transcription empty and OPENAI_API_KEY not set"
+    "All transcription providers failed (GHL empty, Deepgram errored, no Whisper key)"
   );
 }
 
@@ -211,10 +279,12 @@ export async function processCall(
       payload.contact_name, payload.business_name || null
     );
 
-    // Load org's active evaluation template
+    // Load org's active evaluation template (kept for backward compat on
+    // the FK column; the V2 analyzer ignores criteria/weights because the
+    // 5-pillar prompt is canonical).
     const { data: template } = await supabase
       .from("evaluation_templates")
-      .select("id, criteria")
+      .select("id")
       .eq("org_id", orgId)
       .eq("is_active", true)
       .maybeSingle();
@@ -257,35 +327,45 @@ export async function processCall(
 
     const transcript = await getTranscript(ghl, messageId);
 
-    // QA Analysis with Claude — pass org template criteria if available
+    // QA analysis — V2 5-pillar prompt on GPT-4o. Output: scores 1-10
+    // per pillar, critical moment, pattern flags, action items.
     await supabase
       .from("call_recordings")
       .update({ processing_status: "analyzing", transcript })
       .eq("id", recording.id);
 
-    const templateCriteria = template?.criteria as Array<{
-      name: string;
-      description: string;
-      weight: number;
-      max_score: number;
-    }> | undefined;
+    const qaResult = await analyzeCallQA(transcript);
 
-    const qaResult = await analyzeCallQA(transcript, templateCriteria);
+    // Map V2 output to legacy call_recordings columns:
+    //   evaluation_score (0-100) = avg_score * 10 so existing thresholds
+    //     (green >= 70, amber >= 40) still work for dashboard widgets.
+    //   sentiment_score (-1..1) derived from the overall level bucket.
+    const evaluationScore = Math.round(qaResult.avg_score * 10);
+    const sentimentScore =
+      qaResult.overall === "exceptional"
+        ? 0.7
+        : qaResult.overall === "developing"
+          ? 0.3
+          : -0.3;
 
-    // Compute weighted evaluation score using template weights
-    const evaluationScore = computeWeightedScore(qaResult.criteria, templateCriteria);
+    // Critical flag: avg below developing threshold OR any structural
+    // pattern flag was raised. Matches the coaching trigger in N8N.
+    const isCritical =
+      qaResult.avg_score < 5 || qaResult.pattern_flags.length >= 2;
+    const strengths = qaResult.pillars
+      .filter((p) => p.score >= 8)
+      .map((p) => p.name);
+    const improvementAreas = qaResult.pillars
+      .filter((p) => p.score < 7)
+      .map((p) => p.name);
 
-    // Sentiment: heuristic based on overall score
-    const sentimentMap = { green: 0.7, yellow: 0.3, red: -0.3 };
-    const sentimentScore = sentimentMap[qaResult.overall];
-
-    const isCritical = qaResult.missed_count >= 2;
-    const strengths = qaResult.criteria
-      .filter((c) => c.score === "good")
-      .map((c) => c.name);
-    const improvementAreas = qaResult.criteria
-      .filter((c) => c.score === "missed" || c.score === "partial")
-      .map((c) => c.name);
+    // Action plan: prefer the model's action items; fall back to the
+    // list of weak pillars if the parser couldn't extract them.
+    const criticalActionPlan = isCritical
+      ? qaResult.action_items.length > 0
+        ? qaResult.action_items.join("\n")
+        : `Rep needs coaching on: ${improvementAreas.join(", ")}`
+      : null;
 
     // Update call_recording with final results
     await supabase
@@ -298,9 +378,7 @@ export async function processCall(
         strengths,
         improvement_areas: improvementAreas,
         is_critical: isCritical,
-        critical_action_plan: isCritical
-          ? `Rep needs coaching on: ${improvementAreas.join(", ")}`
-          : null,
+        critical_action_plan: criticalActionPlan,
         processing_status: "completed",
       })
       .eq("id", recording.id);
@@ -313,9 +391,9 @@ export async function processCall(
         lead_id: leadId,
         overall: qaResult.overall,
         evaluation_score: evaluationScore,
-        good: qaResult.good_count,
-        partial: qaResult.partial_count,
-        missed: qaResult.missed_count,
+        avg_score: qaResult.avg_score,
+        total_score: qaResult.total_score,
+        pattern_flag_count: qaResult.pattern_flags.length,
       },
     });
   } catch (error) {

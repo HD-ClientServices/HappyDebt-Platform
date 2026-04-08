@@ -16,24 +16,31 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DrillDownFilter } from "./DrillDownPanel";
 import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
+import type { QAAnalysisResultV2 } from "@/lib/openai/types";
 
 interface QACriteriaChartProps {
   onDrillDown?: (title: string, filter: DrillDownFilter) => void;
 }
 
-const CRITERIA_NAMES = [
-  "Industry Explanation",
-  "Urgency",
-  "Clear CTA",
-  "Confirmation Lock-in",
-  "Intensity Under Resistance",
-];
-
-interface CriterionData {
+/**
+ * Aggregated row for the chart: one entry per pillar, with counts of
+ * calls that scored in each level bucket.
+ */
+interface PillarAgg {
   name: string;
-  good: number;
-  partial: number;
-  missed: number;
+  fullName: string;
+  exceptional: number;
+  developing: number;
+  poor: number;
+}
+
+/**
+ * Break pillar names long enough to truncate cleanly on the x-axis.
+ * 20 characters is about the limit before the angled labels start
+ * overlapping on 5-column layouts.
+ */
+function truncate(s: string, max = 20): string {
+  return s.length > max ? s.slice(0, max - 2) + "…" : s;
 }
 
 export function QACriteriaChart({ onDrillDown }: QACriteriaChartProps) {
@@ -42,49 +49,55 @@ export function QACriteriaChart({ onDrillDown }: QACriteriaChartProps) {
   const orgId = userOrg?.orgId;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["qa-criteria-distribution", orgId],
+    queryKey: ["qa-pillar-distribution", orgId],
     enabled: !!orgId,
     queryFn: async () => {
+      // Pull ai_analysis for all analyzed calls in the org.
+      // We filter to V2 (5-pillar) analyses on the client since the
+      // JSONB `->>version` filter is awkward to express in PostgREST.
       const { data: calls } = await supabase
         .from("call_recordings")
-        .select("criteria_scores")
+        .select("ai_analysis")
         .eq("org_id", orgId!)
-        .not("criteria_scores", "is", null);
+        .not("ai_analysis", "is", null);
 
-      if (!calls || calls.length === 0) return [] as CriterionData[];
+      if (!calls || calls.length === 0) return [] as PillarAgg[];
 
-      // Aggregate scores across all calls
-      const agg: Record<string, { good: number; partial: number; missed: number }> = {};
-      CRITERIA_NAMES.forEach((name) => {
-        agg[name] = { good: 0, partial: 0, missed: 0 };
-      });
+      // Aggregate by pillar name. We discover pillar names dynamically
+      // from the first V2 analysis and then map all subsequent calls
+      // into those buckets.
+      const byName = new Map<string, PillarAgg>();
 
       for (const call of calls) {
-        const scores = call.criteria_scores as Record<string, string> | null;
-        if (!scores) continue;
+        const analysis = call.ai_analysis as Record<string, unknown> | null;
+        if (!analysis) continue;
+        if (analysis.version !== "v2-5-pillars-gpt4o") continue;
 
-        // Map criteria keys to display names
-        const keys = Object.keys(scores);
-        keys.forEach((key, i) => {
-          const displayName = CRITERIA_NAMES[i] || key;
-          if (!agg[displayName]) agg[displayName] = { good: 0, partial: 0, missed: 0 };
+        const pillars = (analysis as unknown as QAAnalysisResultV2).pillars;
+        if (!Array.isArray(pillars)) continue;
 
-          const score = (scores[key] || "").toLowerCase();
-          if (score.includes("good") || score === "good") {
-            agg[displayName].good++;
-          } else if (score.includes("partial") || score === "partial") {
-            agg[displayName].partial++;
-          } else if (score.includes("missed") || score === "missed") {
-            agg[displayName].missed++;
+        for (const p of pillars) {
+          if (!p?.name || typeof p.score !== "number") continue;
+
+          let row = byName.get(p.name);
+          if (!row) {
+            row = {
+              name: truncate(p.name),
+              fullName: p.name,
+              exceptional: 0,
+              developing: 0,
+              poor: 0,
+            };
+            byName.set(p.name, row);
           }
-        });
+
+          if (p.score >= 8) row.exceptional++;
+          else if (p.score >= 5) row.developing++;
+          else row.poor++;
+        }
       }
 
-      return Object.entries(agg).map(([name, counts]) => ({
-        name: name.length > 20 ? name.slice(0, 18) + "…" : name,
-        fullName: name,
-        ...counts,
-      }));
+      return Array.from(byName.values());
     },
   });
 
@@ -95,7 +108,7 @@ export function QACriteriaChart({ onDrillDown }: QACriteriaChartProps) {
       <Card className="bg-zinc-900/80 border-zinc-800">
         <CardHeader>
           <CardTitle className="font-heading text-lg">
-            QA Criteria Breakdown
+            QA Pillar Breakdown
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -111,10 +124,11 @@ export function QACriteriaChart({ onDrillDown }: QACriteriaChartProps) {
     <Card className="bg-zinc-900/80 border-zinc-800">
       <CardHeader>
         <CardTitle className="font-heading text-lg">
-          QA Criteria Breakdown
+          QA Pillar Breakdown
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Distribution of Good / Partial / Missed across 5 evaluation criteria
+          Distribution of scores across 5 closer performance pillars — 🟢
+          Exceptional (8-10) · 🟡 Developing (5-7) · 🔴 Poor (1-4)
         </p>
       </CardHeader>
       <CardContent>
@@ -140,50 +154,57 @@ export function QACriteriaChart({ onDrillDown }: QACriteriaChartProps) {
                 borderRadius: "0.5rem",
               }}
             />
-            <Legend
-              wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
-            />
+            <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+            {/*
+              Recharts Bar onClick gives us (data, index, event). The
+              original row lives on `data.payload`. We cast to unknown
+              first because recharts' public types don't expose the
+              payload shape on BarRectangleItem.
+            */}
             <Bar
-              dataKey="good"
+              dataKey="exceptional"
               fill="#10b981"
-              name="Good"
+              name="Exceptional"
               radius={[4, 4, 0, 0]}
               className="cursor-pointer"
-              onClick={(payload: { fullName?: string }) => {
-                if (onDrillDown && payload?.fullName) {
-                  onDrillDown(`${payload.fullName} — Good`, {
-                    criterionName: payload.fullName,
-                    scoreType: "good",
+              onClick={(data: unknown) => {
+                const row = (data as { payload?: PillarAgg })?.payload;
+                if (onDrillDown && row?.fullName) {
+                  onDrillDown(`${row.fullName} — Exceptional`, {
+                    criterionName: row.fullName,
+                    scoreType: "exceptional",
                   });
                 }
               }}
             />
             <Bar
-              dataKey="partial"
+              dataKey="developing"
               fill="#f59e0b"
-              name="Partial"
+              name="Developing"
               radius={[4, 4, 0, 0]}
               className="cursor-pointer"
-              onClick={(payload: { fullName?: string }) => {
-                if (onDrillDown && payload?.fullName) {
-                  onDrillDown(`${payload.fullName} — Partial`, {
-                    criterionName: payload.fullName,
-                    scoreType: "partial",
+              onClick={(data: unknown) => {
+                const row = (data as { payload?: PillarAgg })?.payload;
+                if (onDrillDown && row?.fullName) {
+                  onDrillDown(`${row.fullName} — Developing`, {
+                    criterionName: row.fullName,
+                    scoreType: "developing",
                   });
                 }
               }}
             />
             <Bar
-              dataKey="missed"
+              dataKey="poor"
               fill="#ef4444"
-              name="Missed"
+              name="Poor"
               radius={[4, 4, 0, 0]}
               className="cursor-pointer"
-              onClick={(payload: { fullName?: string }) => {
-                if (onDrillDown && payload?.fullName) {
-                  onDrillDown(`${payload.fullName} — Missed`, {
-                    criterionName: payload.fullName,
-                    scoreType: "missed",
+              onClick={(data: unknown) => {
+                const row = (data as { payload?: PillarAgg })?.payload;
+                if (onDrillDown && row?.fullName) {
+                  onDrillDown(`${row.fullName} — Poor`, {
+                    criterionName: row.fullName,
+                    scoreType: "poor",
                   });
                 }
               }}
