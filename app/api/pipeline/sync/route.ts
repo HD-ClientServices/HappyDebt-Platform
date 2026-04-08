@@ -9,6 +9,10 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { GHLClient } from "@/lib/ghl/client";
 import { getEffectiveOrgId } from "@/lib/auth/getEffectiveOrgId";
+import {
+  getGHLGlobalConfig,
+  GHLNotConfiguredError,
+} from "@/lib/ghl/getGlobalConfig";
 
 export const maxDuration = 60;
 
@@ -26,9 +30,32 @@ export async function POST(request: Request) {
 
     const adminSupabase = createAdminClient();
 
+    // Live transfers still belong to a specific org (they're per-tenant
+    // data), but the GHL credentials and pipeline IDs are global — the
+    // entire product talks to a single GHL account. Migration 00015
+    // moved those columns out of `organizations` into the singleton
+    // `ghl_integration` table; everything below reads them from there.
+    let ghlConfig;
+    try {
+      ghlConfig = await getGHLGlobalConfig();
+    } catch (err) {
+      if (err instanceof GHLNotConfiguredError) {
+        return NextResponse.json(
+          {
+            error:
+              "GHL integration is not configured. Ask an Intro admin to set it up under Admin → GHL Integration.",
+          },
+          { status: 400 }
+        );
+      }
+      throw err;
+    }
+
+    // Confirm the requested org actually exists before doing anything
+    // expensive. (We don't need any of its columns — just its id.)
     const { data: org } = await adminSupabase
       .from("organizations")
-      .select("id, ghl_api_token, ghl_location_id, ghl_opening_pipeline_id, ghl_closing_pipeline_id")
+      .select("id")
       .eq("id", effectiveOrgId)
       .single();
 
@@ -39,17 +66,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const ghlToken = org.ghl_api_token || process.env.GHL_API_TOKEN;
-    const ghlLocationId = org.ghl_location_id || process.env.GHL_LOCATION_ID;
-
-    if (!ghlToken || !ghlLocationId) {
-      return NextResponse.json(
-        { error: "GHL credentials not configured. Go to Settings to add them." },
-        { status: 400 }
-      );
-    }
-
-    const ghl = new GHLClient(ghlToken, ghlLocationId);
+    const ghl = new GHLClient(ghlConfig.apiToken, ghlConfig.locationId);
 
     // ── Step 1: Sync GHL users as closers (batched) ───────────────
     const ghlUsers = await ghl.getUsers();
@@ -103,8 +120,8 @@ export async function POST(request: Request) {
         adminSupabase,
         org.id,
         closerMap,
-        org.ghl_opening_pipeline_id ?? null,
-        org.ghl_closing_pipeline_id ?? null
+        ghlConfig.openingPipelineId,
+        ghlConfig.closingPipelineId
       ),
     ]);
 

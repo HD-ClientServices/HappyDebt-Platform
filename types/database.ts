@@ -32,10 +32,27 @@ export interface Organization {
   plan: OrgPlan;
   trial_ends_at: string | null;
   stripe_customer_id: string | null;
-  ghl_api_token: string | null;
-  ghl_location_id: string | null;
+  // GHL columns moved to the singleton `ghl_integration` table in
+  // migration 00015 — there is one Go High Level account for the entire
+  // platform, not one per org. Read via `lib/ghl/getGlobalConfig.ts`.
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Singleton row in `public.ghl_integration` (one for the whole platform).
+ * See migration 00015_unify_ghl_integration.sql for the why.
+ */
+export interface GHLIntegrationConfig {
+  /** Always `true` — singleton enforced by CHECK on the boolean PK. */
+  id: true;
+  api_token: string | null;
+  location_id: string | null;
+  opening_pipeline_id: string | null;
+  closing_pipeline_id: string | null;
+  reconnect_webhook_url: string | null;
+  updated_at: string;
+  updated_by: string | null;
 }
 
 export interface User {

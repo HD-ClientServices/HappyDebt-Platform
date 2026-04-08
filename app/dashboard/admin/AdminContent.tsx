@@ -4,10 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, BarChart3, Building2, Palette } from "lucide-react";
+import { ArrowLeft, BarChart3, Building2, Palette, Plug2 } from "lucide-react";
 import { PLGPanel, type PLGData } from "./_panels/PLGPanel";
 import { OrgsPanel, type OrgRow } from "./_panels/OrgsPanel";
 import { DesignSystemPanel } from "./_panels/DesignSystemPanel";
+import { GHLIntegrationPanel } from "./_panels/GHLIntegrationPanel";
 
 interface AdminContentProps {
   plgData: PLGData;
@@ -17,6 +18,7 @@ interface AdminContentProps {
 const TABS = [
   { id: "plg", label: "PLG Analytics", icon: BarChart3 },
   { id: "orgs", label: "Organizations", icon: Building2 },
+  { id: "ghl", label: "GHL Integration", icon: Plug2 },
   { id: "design-system", label: "Design System", icon: Palette },
 ] as const;
 
@@ -69,6 +71,7 @@ export function AdminContent({ plgData, orgs }: AdminContentProps) {
       <div>
         {activeTab === "plg" && <PLGPanel data={plgData} />}
         {activeTab === "orgs" && <OrgsPanel orgs={orgs} />}
+        {activeTab === "ghl" && <GHLIntegrationPanel />}
         {activeTab === "design-system" && <DesignSystemPanel />}
       </div>
     </div>

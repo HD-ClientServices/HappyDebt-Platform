@@ -19,28 +19,25 @@ export async function POST(req: NextRequest) {
 
     const supabase = createAdminClient();
 
-    // Find org by GHL location ID (or use default/env)
-    const ghlLocationId = process.env.GHL_LOCATION_ID;
-    let orgId: string | null = null;
+    // Resolve which org should own this lead.
+    //
+    // Migration 00015 made GHL credentials global (one Go High Level
+    // account for the entire platform), so we can no longer match a
+    // webhook payload to an org by location id. For now we route every
+    // incoming call to the org with the most recent GHL activity (in
+    // practice that's Rise — the only client onboarded so far).
+    //
+    // When the second client lands we'll revisit this with a custom
+    // field on the GHL contact (e.g. `intro_org_slug`) and route by
+    // that. Tracked as a TODO in the live-transfers spec.
+    const { data: defaultOrg } = await supabase
+      .from("organizations")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-    if (ghlLocationId) {
-      const { data: org } = await supabase
-        .from("organizations")
-        .select("id")
-        .eq("ghl_location_id", ghlLocationId)
-        .maybeSingle();
-      orgId = org?.id || null;
-    }
-
-    // Fallback: get the first org if no match
-    if (!orgId) {
-      const { data: org } = await supabase
-        .from("organizations")
-        .select("id")
-        .limit(1)
-        .single();
-      orgId = org?.id || null;
-    }
+    const orgId = defaultOrg?.id ?? null;
 
     if (!orgId) {
       return NextResponse.json({ error: "No organization found" }, { status: 404 });
@@ -100,7 +97,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Insert processing job
+    // Insert processing job. We no longer carry GHL credentials in the
+    // payload — the worker (`/api/pipeline/process`) loads them from the
+    // singleton `ghl_integration` table at run time. Keeping the legacy
+    // `ghl_token` / `ghl_location_id` fields out of the payload also
+    // prevents them from leaking into logs or DB rows.
     const { data: job, error: jobError } = await supabase
       .from("processing_jobs")
       .insert({
@@ -111,8 +112,6 @@ export async function POST(req: NextRequest) {
           ...payload,
           closer_id: closerId,
           lead_id: leadId,
-          ghl_token: process.env.GHL_API_TOKEN,
-          ghl_location_id: ghlLocationId,
         },
       })
       .select("id")

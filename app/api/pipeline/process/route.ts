@@ -6,6 +6,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processCall } from "@/lib/pipeline/process-call";
+import {
+  getGHLGlobalConfig,
+  GHLNotConfiguredError,
+} from "@/lib/ghl/getGlobalConfig";
 
 export const maxDuration = 60; // Vercel Pro: 60s timeout
 
@@ -50,6 +54,7 @@ export async function POST(req: NextRequest) {
     }
 
     const job = jobs[0];
+    const payload = job.payload as Record<string, string>;
 
     // Increment attempts
     await supabase
@@ -57,28 +62,26 @@ export async function POST(req: NextRequest) {
       .update({ attempts: (job.attempts || 0) + 1 })
       .eq("id", job.id);
 
-    // Get GHL credentials: first from org, then from payload, then from env
-    const payload = job.payload as Record<string, string>;
+    // GHL credentials are global (singleton in `ghl_integration`,
+    // see migration 00015). The payload may still carry legacy
+    // ghl_token / ghl_location_id fields from old jobs that were
+    // queued before this refactor — we honor those as a fallback so
+    // the cron retry doesn't fail on in-flight work, but new jobs
+    // always come through the global config path.
     let ghlToken = "";
     let ghlLocationId = "";
 
-    // Try to get credentials from the org
-    if (job.org_id) {
-      const { data: org } = await supabase
-        .from("organizations")
-        .select("ghl_api_token, ghl_location_id")
-        .eq("id", job.org_id)
-        .single();
-
-      if (org) {
-        ghlToken = org.ghl_api_token || "";
-        ghlLocationId = org.ghl_location_id || "";
-      }
+    try {
+      const cfg = await getGHLGlobalConfig();
+      ghlToken = cfg.apiToken;
+      ghlLocationId = cfg.locationId;
+    } catch (err) {
+      if (!(err instanceof GHLNotConfiguredError)) throw err;
+      // Fallback to legacy payload fields, then env vars
+      ghlToken = payload.ghl_token || process.env.GHL_API_TOKEN || "";
+      ghlLocationId =
+        payload.ghl_location_id || process.env.GHL_LOCATION_ID || "";
     }
-
-    // Fallback to payload or env
-    if (!ghlToken) ghlToken = payload.ghl_token || process.env.GHL_API_TOKEN || "";
-    if (!ghlLocationId) ghlLocationId = payload.ghl_location_id || process.env.GHL_LOCATION_ID || "";
 
     if (!ghlToken || !ghlLocationId) {
       await supabase
