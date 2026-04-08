@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
     const { data: org } = await adminSupabase
       .from("organizations")
-      .select("id, ghl_api_token, ghl_location_id, ghl_opening_pipeline_id")
+      .select("id, ghl_api_token, ghl_location_id, ghl_opening_pipeline_id, ghl_closing_pipeline_id")
       .eq("id", effectiveOrgId)
       .single();
 
@@ -98,7 +98,14 @@ export async function POST(request: Request) {
     // ── Run Steps 2-3 (calls) and Step 6 (opportunities) in PARALLEL ──
     const [callsResult, oppsResult] = await Promise.all([
       syncCalls(ghl, adminSupabase, org.id, closerMap),
-      syncOpportunities(ghl, adminSupabase, org.id, closerMap, org.ghl_opening_pipeline_id ?? null),
+      syncOpportunities(
+        ghl,
+        adminSupabase,
+        org.id,
+        closerMap,
+        org.ghl_opening_pipeline_id ?? null,
+        org.ghl_closing_pipeline_id ?? null
+      ),
     ]);
 
     // ── Step 5: Trigger pipeline workers (fire-and-forget) ────────
@@ -280,62 +287,91 @@ async function syncOpportunities(
   adminSupabase: ReturnType<typeof createAdminClient>,
   orgId: string,
   closerMap: Map<string, string>,
-  configuredPipelineId: string | null
+  configuredOpeningPipelineId: string | null,
+  configuredClosingPipelineId: string | null
 ) {
   const pipelines = await ghl.getPipelines();
 
-  // Prefer the org-configured pipeline ID; fall back to name match for
-  // backwards compatibility.
-  const openingPipeline = configuredPipelineId
-    ? pipelines.find((p) => p.id === configuredPipelineId)
+  // ── Resolve opening pipeline (configured ID > name fallback) ──
+  const openingPipeline = configuredOpeningPipelineId
+    ? pipelines.find((p) => p.id === configuredOpeningPipelineId)
     : pipelines.find((p) => p.name.toLowerCase().includes("opening"));
 
   if (!openingPipeline) {
-    const warning = configuredPipelineId
-      ? `Configured opening pipeline (id=${configuredPipelineId}) not found in GHL. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`
+    const warning = configuredOpeningPipelineId
+      ? `Configured opening pipeline (id=${configuredOpeningPipelineId}) not found in GHL. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`
       : `No pipeline matching "Opening Pipeline" found. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`;
     console.warn(`[sync] ${warning}`);
     return { transfersSynced: 0, warning };
   }
 
-  console.log(`[sync] Using Opening Pipeline: "${openingPipeline.name}" (${openingPipeline.id})${configuredPipelineId ? " [configured]" : " [name match]"}`);
+  // ── Resolve closing pipeline (optional, configured ID > name fallback) ──
+  const closingPipeline = configuredClosingPipelineId
+    ? pipelines.find((p) => p.id === configuredClosingPipelineId)
+    : pipelines.find((p) => p.name.toLowerCase().includes("closing"));
 
-  // Fetch all won opps from Opening Pipeline
-  const allOpps = [];
-  let hasMore = true;
-  let startAfter: string | undefined;
-  let startAfterId: string | undefined;
+  console.log(
+    `[sync] Opening: "${openingPipeline.name}" (${openingPipeline.id})` +
+      (closingPipeline
+        ? ` | Closing: "${closingPipeline.name}" (${closingPipeline.id})`
+        : " | No closing pipeline configured")
+  );
 
-  while (hasMore) {
-    try {
-      const oppData = await ghl.searchOpportunities(openingPipeline.id, {
-        status: "won",
-        startAfter,
-        startAfterId,
-      });
-      const opps = (oppData.opportunities || []).filter((o) => o.status === "won");
-      allOpps.push(...opps);
-
-      const meta = oppData.meta;
-      if (meta?.nextPageUrl && meta.startAfter && meta.startAfterId) {
-        startAfter = meta.startAfter;
-        startAfterId = meta.startAfterId;
-      } else {
-        hasMore = false;
-      }
-    } catch (err) {
-      console.warn("[sync] Opportunities fetch error:", err instanceof Error ? err.message : String(err));
-      hasMore = false;
+  // Build a stage-id → name map for the closing pipeline (used to detect DQ Lead)
+  const closingStageNameById = new Map<string, string>();
+  if (closingPipeline) {
+    for (const s of closingPipeline.stages) {
+      closingStageNameById.set(s.id, s.name);
     }
   }
 
-  console.log(`[sync] Found ${allOpps.length} won opportunities`);
+  // ── Fetch all WON opps from Opening Pipeline (paginated) ──
+  let openingWonOpps: Awaited<
+    ReturnType<typeof ghl.getAllOpportunities>
+  > = [];
+  try {
+    openingWonOpps = await ghl.getAllOpportunities(openingPipeline.id, {
+      status: "won",
+    });
+  } catch (err) {
+    console.warn(
+      "[sync] Opening pipeline fetch error:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 
-  if (allOpps.length === 0) {
+  // ── Fetch ALL opps from Closing Pipeline (any status) for matching ──
+  let closingOpps: Awaited<ReturnType<typeof ghl.getAllOpportunities>> = [];
+  if (closingPipeline) {
+    try {
+      closingOpps = await ghl.getAllOpportunities(closingPipeline.id);
+    } catch (err) {
+      console.warn(
+        "[sync] Closing pipeline fetch error:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+
+  console.log(
+    `[sync] Found ${openingWonOpps.length} won opps in opening, ${closingOpps.length} in closing`
+  );
+
+  if (openingWonOpps.length === 0) {
     return { transfersSynced: 0, warning: null };
   }
 
-  // Fetch existing transfers in one query for fast dedup
+  // Build closing-by-contactId map for fast cross-pipeline matching
+  const closingByContactId = new Map<
+    string,
+    (typeof closingOpps)[number]
+  >();
+  for (const opp of closingOpps) {
+    const cid = opp.contactId ?? opp.contact?.id;
+    if (cid) closingByContactId.set(cid, opp);
+  }
+
+  // ── Fetch existing transfers in one query for fast dedup ──
   const { data: existingTransfers } = await adminSupabase
     .from("live_transfers")
     .select("id, ghl_opportunity_id")
@@ -347,12 +383,51 @@ async function syncOpportunities(
   );
 
   const syncedOppIds = new Set<string>();
-  const toInsert = [];
+  const toInsert: Record<string, unknown>[] = [];
   const toUpdate: { id: string; data: Record<string, unknown> }[] = [];
 
-  for (const opp of allOpps) {
+  for (const opp of openingWonOpps) {
     syncedOppIds.add(opp.id);
-    const closerId = opp.assignedTo ? closerMap.get(opp.assignedTo) || null : null;
+    const closerId = opp.assignedTo
+      ? closerMap.get(opp.assignedTo) || null
+      : null;
+    const contactId = opp.contactId ?? opp.contact?.id ?? null;
+
+    // Determine closing_status by looking up the closing pipeline opp
+    const closing = contactId ? closingByContactId.get(contactId) : null;
+    let closingStatus: string = "pending_to_close";
+    let closingStatusChangedAt: string | undefined;
+
+    if (closing) {
+      if (closing.status === "won") {
+        closingStatus = "closed_won";
+      } else if (closing.status === "lost") {
+        closingStatus = "closed_lost";
+      } else {
+        // status is open/abandoned — check stage for DQ Lead
+        const stageName = closing.pipelineStageId
+          ? closingStageNameById.get(closing.pipelineStageId) ?? ""
+          : "";
+        if (stageName.toLowerCase().includes("dq")) {
+          closingStatus = "disqualified";
+        } else {
+          closingStatus = "pending_to_close";
+        }
+      }
+      // Use the closing opp's status change timestamp when available — it
+      // reflects when the closer actually moved the deal forward.
+      closingStatusChangedAt =
+        closing.lastStatusChangeAt ?? closing.updatedAt ?? closing.createdAt;
+    }
+
+    // status_change_date represents the moment the live transfer happened
+    // (when the opening opp first reached "won"), preferring the most
+    // recent reliable signal from GHL.
+    const statusChangeDate =
+      opp.lastStatusChangeAt ??
+      closingStatusChangedAt ??
+      opp.updatedAt ??
+      opp.createdAt;
 
     const transferData = {
       org_id: orgId,
@@ -361,10 +436,13 @@ async function syncOpportunities(
       lead_phone: opp.contact?.phone || null,
       lead_email: opp.contact?.email || null,
       business_name: opp.contact?.companyName || null,
-      transfer_date: opp.createdAt,
-      status: "funded",
+      transfer_date: opp.lastStatusChangeAt || opp.createdAt,
+      status_change_date: statusChangeDate,
+      status: "funded", // legacy column kept for back-compat
+      closing_status: closingStatus,
       amount: opp.monetaryValue || 0,
       ghl_opportunity_id: opp.id,
+      ghl_contact_id: contactId,
     };
 
     const existingId = existingByOppId.get(opp.id);
@@ -375,7 +453,7 @@ async function syncOpportunities(
     }
   }
 
-  // Batch insert new transfers
+  // ── Batch insert new transfers ──
   if (toInsert.length > 0) {
     for (let i = 0; i < toInsert.length; i += 50) {
       const chunk = toInsert.slice(i, i + 50);
@@ -384,20 +462,23 @@ async function syncOpportunities(
     }
   }
 
-  // Batch update existing (Supabase doesn't support bulk update, but we can parallelize)
+  // ── Batch update existing transfers ──
   if (toUpdate.length > 0) {
     const updateBatchSize = 10;
     for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
       const batch = toUpdate.slice(i, i + updateBatchSize);
       await Promise.all(
         batch.map((item) =>
-          adminSupabase.from("live_transfers").update(item.data).eq("id", item.id)
+          adminSupabase
+            .from("live_transfers")
+            .update(item.data)
+            .eq("id", item.id)
         )
       );
     }
   }
 
-  // Clean up stale transfers
+  // ── Clean up stale transfers (opps that no longer exist as won in opening) ──
   const staleIds = (existingTransfers || [])
     .filter((t) => t.ghl_opportunity_id && !syncedOppIds.has(t.ghl_opportunity_id))
     .map((t) => t.id);
@@ -408,80 +489,9 @@ async function syncOpportunities(
   }
 
   const transfersSynced = toInsert.length + toUpdate.length;
-  console.log(`[sync] Synced ${transfersSynced} transfers (${toInsert.length} new, ${toUpdate.length} updated)`);
+  console.log(
+    `[sync] Synced ${transfersSynced} transfers (${toInsert.length} new, ${toUpdate.length} updated)`
+  );
 
-  // ── Dual-write: upsert into leads table ──────────────────────────
-  let leadsSynced = 0;
-  try {
-    // Fetch existing leads by ghl_opportunity_id for dedup
-    const oppIds = allOpps.map((o) => o.id);
-    const { data: existingLeads } = await adminSupabase
-      .from("leads")
-      .select("id, ghl_opportunity_id")
-      .eq("org_id", orgId)
-      .in("ghl_opportunity_id", oppIds);
-
-    const existingLeadByOppId = new Map(
-      (existingLeads || []).map((l: { ghl_opportunity_id: string; id: string }) => [l.ghl_opportunity_id, l.id])
-    );
-
-    const leadsToInsert = [];
-    const leadsToUpdate: { id: string; data: Record<string, unknown> }[] = [];
-
-    for (const opp of allOpps) {
-      const closerId = opp.assignedTo ? closerMap.get(opp.assignedTo) || null : null;
-
-      const leadData = {
-        org_id: orgId,
-        closer_id: closerId,
-        name: opp.contact?.name || opp.name || "Unknown Lead",
-        phone: opp.contact?.phone || null,
-        email: opp.contact?.email || null,
-        business_name: opp.contact?.companyName || null,
-        source: "ghl_sync" as const,
-        ghl_contact_id: opp.contact?.id || null,
-        ghl_opportunity_id: opp.id,
-        status: "closed_won" as const, // won opps → closed_won in leads
-        amount: opp.monetaryValue || 0,
-        transfer_date: opp.createdAt,
-        closed_date: opp.lastStatusChangeAt || opp.updatedAt || opp.createdAt,
-      };
-
-      const existingLeadId = existingLeadByOppId.get(opp.id);
-      if (existingLeadId) {
-        leadsToUpdate.push({ id: existingLeadId, data: leadData });
-      } else {
-        leadsToInsert.push(leadData);
-      }
-    }
-
-    // Batch insert new leads
-    if (leadsToInsert.length > 0) {
-      for (let i = 0; i < leadsToInsert.length; i += 50) {
-        const chunk = leadsToInsert.slice(i, i + 50);
-        const { error } = await adminSupabase.from("leads").insert(chunk);
-        if (error) console.error("[sync] Batch lead insert error:", error.message);
-      }
-    }
-
-    // Batch update existing leads
-    if (leadsToUpdate.length > 0) {
-      const updateBatchSize = 10;
-      for (let i = 0; i < leadsToUpdate.length; i += updateBatchSize) {
-        const batch = leadsToUpdate.slice(i, i + updateBatchSize);
-        await Promise.all(
-          batch.map((item) =>
-            adminSupabase.from("leads").update(item.data).eq("id", item.id)
-          )
-        );
-      }
-    }
-
-    leadsSynced = leadsToInsert.length + leadsToUpdate.length;
-    console.log(`[sync] Leads dual-write: ${leadsSynced} synced (${leadsToInsert.length} new, ${leadsToUpdate.length} updated)`);
-  } catch (err) {
-    console.error("[sync] Leads dual-write error (non-fatal):", err instanceof Error ? err.message : String(err));
-  }
-
-  return { transfersSynced, leadsSynced, warning: null };
+  return { transfersSynced, warning: null };
 }

@@ -110,11 +110,15 @@ export interface GHLPipelinesResponse {
 export interface GHLOpportunity {
   id: string;
   name?: string;
+  /** open | won | lost | abandoned */
   status: string;
   monetaryValue?: number;
   assignedTo?: string;
   pipelineId?: string;
   pipelineStageId?: string;
+  /** Top-level contact id (also available nested under .contact.id) */
+  contactId?: string;
+  source?: string;
   contact?: {
     id?: string;
     name?: string;
@@ -123,6 +127,12 @@ export interface GHLOpportunity {
     companyName?: string;
   };
   createdAt: string;
+  updatedAt?: string;
+  /** When the opp's status (open/won/lost) last changed — verified via curl. */
+  lastStatusChangeAt?: string;
+  /** When the opp's stage last changed — verified via curl. */
+  lastStageChangeAt?: string;
+  effectiveProbability?: number;
 }
 
 export interface GHLOpportunitiesResponse {

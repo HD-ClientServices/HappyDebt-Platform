@@ -13,6 +13,7 @@ import type {
   GHLPipeline,
   GHLPipelinesResponse,
   GHLOpportunitiesResponse,
+  GHLOpportunity,
   DiscoveredCall,
 } from "./types";
 
@@ -187,6 +188,52 @@ export class GHLClient {
     if (opts?.startAfter) url += `&startAfter=${opts.startAfter}`;
     if (opts?.startAfterId) url += `&startAfterId=${opts.startAfterId}`;
     return this.request<GHLOpportunitiesResponse>(url);
+  }
+
+  /**
+   * Fetch ALL opportunities from a pipeline (handles cursor-based
+   * pagination internally). Optionally filter by status.
+   *
+   * Use this when you need the full set in one call (e.g., to build a
+   * Map for cross-pipeline matching). For Rise's CLOSING PIPELINE this
+   * is ~141 opps, manageable in a single sync.
+   */
+  async getAllOpportunities(
+    pipelineId: string,
+    opts?: { status?: string }
+  ): Promise<GHLOpportunity[]> {
+    const all: GHLOpportunity[] = [];
+    let startAfter: string | undefined;
+    let startAfterId: string | undefined;
+    let hasMore = true;
+    let safety = 0;
+
+    while (hasMore && safety < 100) {
+      safety++;
+      const res = await this.searchOpportunities(pipelineId, {
+        status: opts?.status,
+        startAfter,
+        startAfterId,
+      });
+      const batch = res.opportunities || [];
+      all.push(...batch);
+
+      // GHL signals end of pagination by omitting nextPageUrl OR returning
+      // an empty batch.
+      if (
+        batch.length === 0 ||
+        !res.meta?.nextPageUrl ||
+        !res.meta.startAfter ||
+        !res.meta.startAfterId
+      ) {
+        hasMore = false;
+      } else {
+        startAfter = res.meta.startAfter;
+        startAfterId = res.meta.startAfterId;
+      }
+    }
+
+    return all;
   }
 
   /**

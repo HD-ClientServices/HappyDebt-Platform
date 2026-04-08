@@ -33,34 +33,49 @@ function useLiveTransfersKPIs(dateRange: DateRange, orgId: string | undefined) {
     queryKey: ["live-transfers-kpis", orgId, from, to],
     enabled: !!orgId,
     queryFn: async () => {
+      // Pull all rows in range with closing_status to compute conversion
+      // and find the top closer.
       const { data: transfers } = await supabase
         .from("live_transfers")
-        .select("id, status, closer_id, transfer_date")
+        .select("id, closing_status, closer_id, status_change_date")
         .eq("org_id", orgId!)
-        .gte("transfer_date", from)
-        .lte("transfer_date", to);
+        .gte("status_change_date", from)
+        .lte("status_change_date", to);
 
       const total = transfers?.length ?? 0;
-      const transferred = transfers?.filter((t) => t.status === "transferred").length ?? 0;
-      const funded = transfers?.filter((t) => t.status === "funded").length ?? 0;
-      const conversionRate = total > 0 ? Math.round((funded / total) * 100) : 0;
+      const closedWon = transfers?.filter((t) => t.closing_status === "closed_won").length ?? 0;
+      const closedLost = transfers?.filter((t) => t.closing_status === "closed_lost").length ?? 0;
 
-      const byCloser = (transfers ?? []).reduce<Record<string, number>>((acc, t) => {
-        const id = t.closer_id ?? "unknown";
-        acc[id] = (acc[id] ?? 0) + 1;
-        return acc;
-      }, {});
-      const topCloserId = Object.entries(byCloser).sort((a, b) => b[1] - a[1])[0]?.[0];
-      const { data: closers } = await supabase
-        .from("closers")
-        .select("id, name")
-        .eq("org_id", orgId!);
-      const topCloserName =
-        topCloserId && closers
-          ? closers.find((c) => c.id === topCloserId)?.name ?? "—"
-          : "—";
+      // Conversion rate per user spec: closed_won / (closed_won + closed_lost)
+      // Pending to close and disqualified are excluded from the denominator.
+      const conversionRate =
+        closedWon + closedLost > 0
+          ? Math.round((closedWon / (closedWon + closedLost)) * 100)
+          : 0;
 
-      return { total, transferred, funded, conversionRate, topCloserName };
+      // Top closer by closed_won count
+      const wonByCloser = (transfers ?? [])
+        .filter((t) => t.closing_status === "closed_won")
+        .reduce<Record<string, number>>((acc, t) => {
+          const id = t.closer_id ?? "unknown";
+          acc[id] = (acc[id] ?? 0) + 1;
+          return acc;
+        }, {});
+      const topCloserId = Object.entries(wonByCloser).sort(
+        (a, b) => b[1] - a[1]
+      )[0]?.[0];
+
+      let topCloserName = "—";
+      if (topCloserId && topCloserId !== "unknown") {
+        const { data: closer } = await supabase
+          .from("closers")
+          .select("name")
+          .eq("id", topCloserId)
+          .maybeSingle();
+        topCloserName = closer?.name ?? "—";
+      }
+
+      return { total, closedWon, closedLost, conversionRate, topCloserName };
     },
   });
 }
@@ -82,8 +97,8 @@ export function KPIRow({ dateRange }: Props) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
       <StatCard title="Total Live Transfers" value={data?.total ?? 0} />
-      <StatCard title="Transferred" value={data?.transferred ?? 0} />
-      <StatCard title="Funded" value={data?.funded ?? 0} />
+      <StatCard title="Closed Won" value={data?.closedWon ?? 0} />
+      <StatCard title="Closed Lost" value={data?.closedLost ?? 0} />
       <StatCard
         title="Conversion Rate"
         value={`${data?.conversionRate ?? 0}%`}

@@ -50,15 +50,18 @@ export function DailyBarChart({ dateRange, selectedDate, onSelectDate }: Props) 
     queryKey: ["live-transfers-daily", orgId, from, to],
     enabled: !!orgId,
     queryFn: async () => {
+      // Group by status_change_date — when the opp moved to "won" in the
+      // opening pipeline. This is the date of the live transfer event.
       const { data: transfers } = await supabase
         .from("live_transfers")
-        .select("transfer_date")
+        .select("status_change_date")
         .eq("org_id", orgId!)
-        .gte("transfer_date", from)
-        .lte("transfer_date", to);
+        .gte("status_change_date", from)
+        .lte("status_change_date", to);
       const byDay: Record<string, number> = {};
       (transfers ?? []).forEach((t) => {
-        const d = new Date(t.transfer_date).toISOString().slice(0, 10);
+        if (!t.status_change_date) return;
+        const d = new Date(t.status_change_date).toISOString().slice(0, 10);
         byDay[d] = (byDay[d] ?? 0) + 1;
       });
       const days = Object.entries(byDay).map(([date, count]) => ({ date, count }));
