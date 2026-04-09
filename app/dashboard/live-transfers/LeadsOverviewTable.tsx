@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, Fragment } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DateRange } from "react-day-picker";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -21,12 +21,30 @@ import {
   FileText,
   RefreshCw,
   MessageSquare,
+  Check,
+  Loader2,
+  ChevronDown,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 import { QAReportModal } from "@/components/live-transfers/QAReportModal";
 import { ReconnectButton } from "@/components/live-transfers/ReconnectButton";
 import { FeedbackModal } from "@/components/live-transfers/FeedbackModal";
 import { formatUSD } from "@/lib/utils/format-currency";
+import { apiFetch } from "@/lib/api-client";
+
+/**
+ * Status values a user can pick from the UI dropdown. Narrower than
+ * the DB enum because `disqualified` is a GHL stage (not a status)
+ * and can only be set by moving the opp to the DQ stage directly
+ * in GHL. See `/api/live-transfers/[id]/closing-status/route.ts`.
+ */
+type EditableClosingStatus = "pending_to_close" | "closed_won" | "closed_lost";
 
 const statusLabels: Record<string, string> = {
   pending_to_close: "Pending to Close",
@@ -61,6 +79,8 @@ interface LiveTransferRow {
   closing_status: string | null;
   amount: number | null;
   ghl_contact_id: string | null;
+  /** Closing pipeline opp id — required for the status dropdown to be enabled. */
+  ghl_closing_opportunity_id: string | null;
   closers: { name: string } | null;
 }
 
@@ -117,7 +137,7 @@ export function LeadsOverviewTable({ dateRange, filterDate }: Props) {
       const { data } = await supabase
         .from("live_transfers")
         .select(
-          "id, status_change_date, transfer_date, lead_name, lead_phone, business_name, closer_id, closing_status, amount, ghl_contact_id, closers(name)"
+          "id, status_change_date, transfer_date, lead_name, lead_phone, business_name, closer_id, closing_status, amount, ghl_contact_id, ghl_closing_opportunity_id, closers(name)"
         )
         .eq("org_id", orgId!)
         .gte("status_change_date", from)
@@ -125,6 +145,45 @@ export function LeadsOverviewTable({ dateRange, filterDate }: Props) {
         .order("status_change_date", { ascending: false })
         .limit(500);
       return (data ?? []) as unknown as LiveTransferRow[];
+    },
+  });
+
+  // ── Mutation: change closing_status for a row ──
+  //
+  // POSTs to /api/live-transfers/[id]/closing-status, which:
+  //   1. Validates auth + org ownership
+  //   2. Looks up the row's ghl_closing_opportunity_id
+  //   3. Calls GHL to update the opp status
+  //   4. If GHL accepts, updates the local DB row
+  //
+  // On success we invalidate every cache that depends on closing_status
+  // (overview table, KPI row, daily chart) so the UI refreshes without
+  // a page reload.
+  const queryClient = useQueryClient();
+
+  const updateClosingStatusMutation = useMutation({
+    mutationFn: async (vars: {
+      id: string;
+      closing_status: EditableClosingStatus;
+    }) => {
+      const res = await apiFetch(
+        `/api/live-transfers/${vars.id}/closing-status`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ closing_status: vars.closing_status }),
+        }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed to update status: ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["live-transfers-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["live-transfers-kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["live-transfers-daily"] });
     },
   });
 
@@ -249,15 +308,92 @@ export function LeadsOverviewTable({ dateRange, filterDate }: Props) {
                         {closer?.name ?? "—"}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={
-                            statusVariants[row.closing_status ?? ""] ??
-                            "secondary"
-                          }
-                        >
-                          {statusLabels[row.closing_status ?? ""] ??
-                            "Pending to Close"}
-                        </Badge>
+                        {(() => {
+                          const currentStatus =
+                            row.closing_status ?? "pending_to_close";
+                          const isPending =
+                            updateClosingStatusMutation.isPending &&
+                            updateClosingStatusMutation.variables?.id ===
+                              row.id;
+
+                          // Disable the dropdown when:
+                          //   - no closing opp has been linked yet (pre-sync)
+                          //   - the row is currently disqualified (that state
+                          //     can only be changed in GHL by moving stages)
+                          //   - a mutation on this row is in flight
+                          const disabled =
+                            !row.ghl_closing_opportunity_id ||
+                            currentStatus === "disqualified" ||
+                            isPending;
+
+                          const badge = (
+                            <Badge
+                              variant={
+                                statusVariants[currentStatus] ?? "secondary"
+                              }
+                              className={
+                                disabled
+                                  ? "inline-flex items-center gap-1"
+                                  : "inline-flex items-center gap-1 cursor-pointer hover:opacity-80"
+                              }
+                              title={
+                                !row.ghl_closing_opportunity_id
+                                  ? "Run a sync first to link this lead to its closing opportunity"
+                                  : currentStatus === "disqualified"
+                                    ? "Disqualified can only be changed in GHL directly"
+                                    : undefined
+                              }
+                            >
+                              {isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : null}
+                              {statusLabels[currentStatus] ??
+                                "Pending to Close"}
+                              {!disabled && (
+                                <ChevronDown className="h-3 w-3 opacity-60" />
+                              )}
+                            </Badge>
+                          );
+
+                          if (disabled) return badge;
+
+                          // Base UI's DropdownMenuTrigger renders as a
+                          // native <button> (no `asChild` support like
+                          // Radix), so we put the badge content directly
+                          // inside it and strip default button styling.
+                          return (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger className="outline-none bg-transparent border-0 p-0 cursor-pointer">
+                                {badge}
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                {(
+                                  [
+                                    "pending_to_close",
+                                    "closed_won",
+                                    "closed_lost",
+                                  ] as EditableClosingStatus[]
+                                ).map((status) => (
+                                  <DropdownMenuItem
+                                    key={status}
+                                    onClick={() =>
+                                      updateClosingStatusMutation.mutate({
+                                        id: row.id,
+                                        closing_status: status,
+                                      })
+                                    }
+                                    className="flex items-center justify-between gap-4"
+                                  >
+                                    <span>{statusLabels[status]}</span>
+                                    {currentStatus === status && (
+                                      <Check className="h-3.5 w-3.5 text-emerald-500" />
+                                    )}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-center">
                         {score !== null ? (

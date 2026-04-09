@@ -99,6 +99,20 @@ Pipeline for resolving `live_transfers.closer_id`:
 
 **Why contacts, not opportunities?** The GHL opportunities search endpoint returns a simplified contact object (`id`, `name`, `phone`, `email`, `companyName`, `tags`) with no `customFields`. Only the dedicated contact-by-id endpoint includes them. This introduces an N+1 fetch pattern per sync which is acceptable up to a few hundred opps; past that, cache contacts in DB with a TTL.
 
+### Editing closing_status from the UI
+
+Users can change a live_transfer's `closing_status` directly from the dropdown attached to the Status badge in `LeadsOverviewTable`. The flow propagates the change all the way to GHL so the next sync doesn't revert it:
+
+1. Frontend POSTs to `/api/live-transfers/[id]/closing-status` with `{ closing_status: "closed_won" | "closed_lost" | "pending_to_close" }`.
+2. The endpoint loads the row (org-scoped), reads `ghl_closing_opportunity_id` (populated during sync in `syncOpportunities()` from the closing-pipeline cross-match — see migration 00017 and the backfill comment in the sync route).
+3. Maps the internal status to a GHL status value (`closed_won → won`, `closed_lost → lost`, `pending_to_close → open`) and calls `PUT /opportunities/{id}/status` via `GHLClient.updateOpportunityStatus()`.
+4. If GHL accepts, updates the local `live_transfers` row with the new `closing_status` and bumps `status_change_date = now()`. If GHL rejects, the local row is NOT changed — the endpoint returns 502 and the UI shows the error.
+5. On the next sync, `syncOpportunities()` re-derives `closing_status` from GHL's now-updated state and confirms it matches. No drift.
+
+**`disqualified` is NOT exposed in the dropdown**. In GHL, "disqualified" isn't a status value — it's a stage of the closing pipeline (detected by `"dq"` in the stage name). To mark a lead as disqualified, users must move the opportunity to the DQ stage in GHL directly; the next sync picks it up. Same in reverse: a lead currently marked `disqualified` can't be changed from the dropdown (it's disabled with a tooltip) until someone moves it out of the DQ stage in GHL.
+
+**The dropdown is also disabled** when `ghl_closing_opportunity_id` is null. That happens on rows where the opening-pipeline opp has no cognate in the closing pipeline yet — typically fresh leads that haven't been worked on. The tooltip tells the user to run a sync first, which re-cross-matches and populates the column.
+
 ### KPI vocabulary — "Closing rate" (not "Conversion rate")
 
 The canonical term for the rate metric on the Live Transfers dashboard is **Closing Rate**, not "Conversion Rate". Formula:

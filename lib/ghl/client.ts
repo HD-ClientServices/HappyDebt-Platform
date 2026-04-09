@@ -229,6 +229,39 @@ export class GHLClient {
     }
   }
 
+  /**
+   * Update the status of a GHL opportunity via the dedicated
+   * `PUT /opportunities/{id}/status` endpoint.
+   *
+   * Valid status values per the GHL API docs (see
+   * `docs/skills/ghl-api/references/opportunities.md`):
+   *   - `open`      — in progress
+   *   - `won`       — deal closed successfully
+   *   - `lost`      — deal lost
+   *   - `abandoned` — lead ghosted / no response
+   *
+   * Note: `disqualified` is NOT a valid GHL status value. In GHL,
+   * disqualified leads live in a closing-pipeline stage named
+   * something like "DQ Lead" — the sync code detects it by matching
+   * the stage name. This helper does NOT handle moving opps to
+   * specific stages; for that use `PUT /opportunities/{id}` with
+   * `pipelineStageId` instead.
+   *
+   * Throws `GHL API Error N: ...` on failure (through the shared
+   * request() helper with its retry-on-429 behavior). Callers should
+   * catch and surface the error to the user.
+   */
+  async updateOpportunityStatus(
+    opportunityId: string,
+    status: "open" | "won" | "lost" | "abandoned"
+  ): Promise<void> {
+    await this.request(
+      `/opportunities/${opportunityId}/status`,
+      "PUT",
+      { status }
+    );
+  }
+
   /** Get all pipelines for this location */
   async getPipelines(): Promise<GHLPipeline[]> {
     const data = await this.request<GHLPipelinesResponse>(

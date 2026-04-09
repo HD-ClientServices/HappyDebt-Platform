@@ -102,9 +102,21 @@ export interface LiveTransfer {
   lead_email: string | null;
   business_name: string | null;
   transfer_date: string;
+  status_change_date: string | null;
   status: LiveTransferStatus;
+  /** pending_to_close | closed_won | closed_lost | disqualified */
+  closing_status: string | null;
   amount: number | null;
   notes: string | null;
+  /** GHL opening pipeline opp id (the one we iterate during sync). */
+  ghl_opportunity_id: string | null;
+  /**
+   * GHL closing pipeline opp id — captured during sync from the
+   * cross-match by contact_id. Populated on the next sync run after
+   * migration 00017. Required by the edit-status endpoint.
+   */
+  ghl_closing_opportunity_id: string | null;
+  ghl_contact_id: string | null;
   created_at: string;
 }
 

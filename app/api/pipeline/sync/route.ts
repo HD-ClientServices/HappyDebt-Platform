@@ -678,7 +678,12 @@ async function syncOpportunities(
       status: "funded",
       closing_status: closingStatus,
       amount: opp.monetaryValue || 0,
-      ghl_opportunity_id: opp.id,
+      ghl_opportunity_id: opp.id, // opening pipeline opp
+      // Closing pipeline opp id, captured from the cross-match above.
+      // Stored so the /api/live-transfers/[id]/closing-status edit
+      // endpoint can PUT directly against the right GHL opportunity
+      // without re-scanning the closing pipeline every time.
+      ghl_closing_opportunity_id: closing?.id ?? null,
       ghl_contact_id: contactId,
     });
   }
