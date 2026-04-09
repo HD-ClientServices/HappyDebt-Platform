@@ -152,7 +152,7 @@ export function FeedbackModal({ liveTransferId, open, onClose }: Props) {
         )}
 
         {!submitted && (
-          <DialogFooter>
+          <DialogFooter className="border-t-0 bg-transparent">
             <Button
               variant="outline"
               onClick={handleClose}
