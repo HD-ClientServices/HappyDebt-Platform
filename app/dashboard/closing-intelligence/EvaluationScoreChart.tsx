@@ -65,7 +65,7 @@ export function EvaluationScoreChart({ onDrillDown }: EvaluationScoreChartProps)
 
   if (isLoading) return <Skeleton className="h-[280px] w-full rounded-xl" />;
 
-  const chartData = data?.data?.length ? data.data : [{ name: "—", score: 0 }];
+  const chartData = data?.data?.length ? data.data : [{ name: "—", closerId: "", score: 0 }];
   const orgAvg = data?.avg ?? 0;
 
   return (

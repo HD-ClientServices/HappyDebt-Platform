@@ -168,14 +168,8 @@ export function ActionablesBoard() {
                       <div className="flex items-start justify-between gap-2">
                         <p className="font-medium">{a.title}</p>
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 shrink-0"
-                            >
+                          <DropdownMenuTrigger className="outline-none bg-transparent border-0 p-0 h-6 w-6 shrink-0 inline-flex items-center justify-center rounded-md hover:bg-zinc-800 transition-colors">
                               <MoreHorizontal className="h-4 w-4" />
-                            </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             {statusOptions
@@ -270,7 +264,7 @@ export function ActionablesBoard() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="actionable-priority">Priority</Label>
-              <Select value={newPriority} onValueChange={setNewPriority}>
+              <Select value={newPriority} onValueChange={(v) => v && setNewPriority(v)}>
                 <SelectTrigger className="bg-zinc-800 border-zinc-700">
                   <SelectValue />
                 </SelectTrigger>

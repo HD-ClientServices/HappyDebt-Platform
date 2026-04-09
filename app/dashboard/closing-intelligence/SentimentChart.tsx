@@ -91,11 +91,11 @@ export function SentimentChart({ onDrillDown }: SentimentChartProps) {
               activeDot={{
                 r: 6,
                 className: "cursor-pointer",
-                onClick: (_e: unknown, payload: { payload?: { date?: string } }) => {
-                  if (onDrillDown && payload?.payload?.date) {
-                    onDrillDown(`Calls on ${payload.payload.date}`, {
-                      date: payload.payload.date,
-                    });
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                onClick: (_e: any, payload: any) => {
+                  const date = payload?.payload?.date as string | undefined;
+                  if (onDrillDown && date) {
+                    onDrillDown(`Calls on ${date}`, { date });
                   }
                 },
               }}
