@@ -484,7 +484,7 @@ export async function GET(
           <div class="meta">
             <span>Closer: <strong>${escapeHtml(closerName)}</strong></span>
             <span>Date: <strong>${callDate}</strong></span>
-            <span>Duration: <strong>${duration}</strong></span>
+            <span>Duration: <strong id="header-duration">${duration}</strong></span>
           </div>
         </div>
         ${bodyHtml.badge}
@@ -595,6 +595,16 @@ function renderAudioPlayer(callId: string): string {
         uiEl.style.display = 'flex';
         uiEl.style.flexDirection = 'column';
         uiEl.style.gap = '14px';
+
+        // If the header shows "N/A" (duration_seconds was 0 in the DB),
+        // replace it with the real duration from the audio file metadata.
+        var headerDur = document.getElementById('header-duration');
+        if (headerDur && headerDur.textContent === 'N/A') {
+          var d = audio.duration;
+          var m = Math.floor(d / 60);
+          var s = Math.floor(d % 60);
+          headerDur.textContent = m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+        }
       });
 
       audio.addEventListener('timeupdate', function() {
