@@ -8,14 +8,22 @@ This file is the orientation doc Claude Code loads on startup. Read it first bef
 
 ## Skills that apply to this project
 
-Two Anthropic skills are installed on the local machine and should be loaded automatically when their triggers fire. Both are relevant to this repo — when working on GHL-adjacent code, lean on them instead of guessing endpoint shapes.
+Two Anthropic skills are **vendored into this repo** under `docs/skills/` so they're available to Claude Code sessions on every machine — local, CI, or Vercel build — even when the skills plugin isn't installed. When working on GHL-adjacent code, lean on them instead of guessing endpoint shapes or copying patterns from memory.
 
-- **`ghl-api`** — Expert knowledge of the GoHighLevel (GHL) API v2. Triggers: "GHL API", "create contact in GHL", "GHL webhook", "locationId", "pipelineId", OAuth, custom fields, contact/conversation/calendar/opportunity endpoints, request/response schemas. The skill has reference files for every GHL module under `references/` (calendars, contacts, conversations, custom-fields, locations, opportunities, payments, users, webhooks, other-modules).
-- **`ghl-call-recordings`** — Expert knowledge of GHL call recordings: how they're stored, accessed, transcribed, and analyzed in n8n workflows. Triggers: "call recording", "transcribe call", "live transfer recording", Twilio-backed audio, QA analysis pipelines.
+- **`docs/skills/ghl-api/SKILL.md`** — Expert knowledge of the GoHighLevel (GHL) API v2. Triggers: "GHL API", "create contact in GHL", "GHL webhook", "locationId", "pipelineId", OAuth, custom fields, contact/conversation/calendar/opportunity endpoints, request/response schemas. The skill has reference files for every GHL module under `docs/skills/ghl-api/references/`:
+  - `calendars.md` · `contacts.md` · `conversations.md` · `custom-fields.md` · `locations.md` · `opportunities.md` · `other-modules.md` · `payments.md` · `users.md` · `webhooks.md`
+- **`docs/skills/ghl-call-recordings/SKILL.md`** — Hard-won knowledge of how GHL stores and serves call recordings, the `?index=` gotcha for live transfers, n8n OOM patterns, and the Deepgram-vs-Whisper decision that shaped `lib/deepgram/client.ts`. References under `docs/skills/ghl-call-recordings/references/`:
+  - `recording-api.md` — API download patterns, call selection
+  - `n8n-patterns.md` — OOM gotchas, HTTP Request vs Code nodes
+  - `transcription.md` — Deepgram vs Whisper, file size limits, language detection
 
-If you see an inline guess at a GHL endpoint URL, header shape, or webhook payload without first consulting these skills, that's a smell — ask the skill.
+Many of the non-obvious choices already in the codebase (Deepgram with `language=multi`, closer-first recording fallback, the cascade in `lib/pipeline/process-call.ts`) come from these skills — don't reverse them without re-reading the relevant reference first.
 
-Other Anthropic skills that may apply to adjacent work: `mca-lead-analytics`, `tanda-ghl`, `texttorrent-expert`, `openclaw`.
+If you see an inline guess at a GHL endpoint URL, header shape, or webhook payload without first consulting the vendored references, that's a smell — read the file.
+
+See `docs/skills/README.md` for the provenance of these copies and how to re-sync them with the upstream installed skills if they change.
+
+**Other Anthropic skills** that may apply to adjacent work but are NOT vendored here (they're only available when the plugin is installed locally): `mca-lead-analytics`, `tanda-ghl`, `texttorrent-expert`, `openclaw`.
 
 ---
 
