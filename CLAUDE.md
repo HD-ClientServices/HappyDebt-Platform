@@ -104,6 +104,55 @@ Per-call webhook from GHL when a call-completed event fires:
 
 ---
 
+## Applying migrations (Management API workflow)
+
+**You can apply migrations directly from this repo without touching the Supabase SQL Editor.** The project has two helper scripts that hit the Supabase Management API (`api.supabase.com/v1/projects/{ref}/database/query`) with arbitrary SQL — including DDL, which the REST API can't do.
+
+### Setup (one-time)
+
+Two env vars in `.env.local` (both gitignored):
+
+```bash
+SUPABASE_ACCESS_TOKEN=sbp_...          # PAT from https://supabase.com/dashboard/account/tokens
+SUPABASE_PROJECT_REF=ouszjnrkawvrwxjjgrxx   # subdomain of SUPABASE_URL
+```
+
+The PAT is a workspace-level token with full database access. Keep it out of git, out of logs, and out of shared screens. Revoke it on the dashboard when the project ends.
+
+### Apply a migration
+
+```bash
+node scripts/apply-migration.mjs supabase/migrations/00017_whatever.sql
+```
+
+- Sends the entire file as one query (Supabase wraps it in a transaction — all-or-nothing).
+- Preserves dollar-quoted `DO $$ ... END $$` blocks intact, so idempotent guards like the one in 00013 work.
+- Reports elapsed time and the result set of the last statement.
+- Exit code 0 on success, 1 on any error.
+
+### One-off queries
+
+```bash
+node scripts/db-query.mjs "SELECT slug, ghl_opening_pipeline_id FROM organizations"
+node scripts/db-query.mjs -f some-query.sql
+echo "SELECT count(*) FROM live_transfers" | node scripts/db-query.mjs -
+```
+
+Uses the same Management API endpoint. Great for verifying state before/after a migration (`"SELECT count(*) FROM ..."`), inspecting schema (`"SELECT column_name FROM information_schema.columns WHERE table_name = 'foo'"`), or debugging (`"SELECT * FROM pg_policies WHERE tablename = 'live_transfers'"`).
+
+### When Claude Code is writing a migration
+
+The standard workflow in this repo:
+
+1. Claude writes the SQL file at `supabase/migrations/NNNNN_description.sql` following the conventions in the existing migrations (idempotent `IF NOT EXISTS`, `DO $$` guards for UPDATEs that reference columns that might be dropped later, RLS policies at the end).
+2. Claude runs `node scripts/apply-migration.mjs supabase/migrations/NNNNN_description.sql` and reports the result.
+3. Claude verifies the new state with `node scripts/db-query.mjs "..."` to confirm the migration did what it should.
+4. Claude commits the migration file along with any code changes that depend on the new schema.
+
+No more copy-pasting SQL into the Supabase SQL Editor.
+
+---
+
 ## Migrations
 
 Applied in order:
