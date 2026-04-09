@@ -13,16 +13,20 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { CallAudioPlayer } from "@/components/audio/CallAudioPlayer";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  CheckCircle2,
-  AlertTriangle,
-  XCircle,
   User,
   Phone,
   Building,
   Calendar,
   Clock,
+  AlertTriangle,
+  Flag,
 } from "lucide-react";
 import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
+import type {
+  QAAnalysisResultV2,
+  QAPillarResult,
+  PillarLevel,
+} from "@/lib/openai/types";
 
 interface CallDetailModalProps {
   callId: string | null;
@@ -30,26 +34,42 @@ interface CallDetailModalProps {
   onClose: () => void;
 }
 
-const scoreBadge = (score: string) => {
-  const s = score?.toLowerCase() || "";
-  if (s.includes("good"))
-    return (
-      <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30">
-        <CheckCircle2 className="mr-1 h-3 w-3" /> Good
-      </Badge>
-    );
-  if (s.includes("partial"))
-    return (
-      <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/30">
-        <AlertTriangle className="mr-1 h-3 w-3" /> Partial
-      </Badge>
-    );
+/** Detect if a stored ai_analysis object is the V2 5-pillar format. */
+function isV2Analysis(x: unknown): x is QAAnalysisResultV2 {
   return (
-    <Badge className="bg-red-500/10 text-red-500 border-red-500/30">
-      <XCircle className="mr-1 h-3 w-3" /> Missed
-    </Badge>
+    !!x &&
+    typeof x === "object" &&
+    (x as { version?: string }).version === "v2-5-pillars-gpt4o"
   );
-};
+}
+
+/** Pillar-level color scheme (matches the report HTML). */
+function levelClasses(level: PillarLevel): {
+  border: string;
+  bg: string;
+  text: string;
+} {
+  switch (level) {
+    case "exceptional":
+      return {
+        border: "border-emerald-500/30",
+        bg: "bg-emerald-500/10",
+        text: "text-emerald-400",
+      };
+    case "developing":
+      return {
+        border: "border-yellow-500/30",
+        bg: "bg-yellow-500/10",
+        text: "text-yellow-400",
+      };
+    case "poor":
+      return {
+        border: "border-red-500/30",
+        bg: "bg-red-500/10",
+        text: "text-red-400",
+      };
+  }
+}
 
 const overallBadge = (score: number | null) => {
   if (score == null) return null;
@@ -83,9 +103,7 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
       if (!callId) return null;
       const { data } = await supabase
         .from("call_recordings")
-        .select(
-          "*, closers(name)"
-        )
+        .select("*, closers(name)")
         .eq("org_id", orgId!)
         .eq("id", callId)
         .single();
@@ -93,6 +111,9 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
     },
     enabled: !!callId && open && !!orgId,
   });
+
+  const analysis = call?.ai_analysis;
+  const v2 = isV2Analysis(analysis) ? analysis : null;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -166,8 +187,8 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
                       call.sentiment_score > 0
                         ? "border-emerald-500/30 text-emerald-400"
                         : call.sentiment_score < 0
-                        ? "border-red-500/30 text-red-400"
-                        : "border-zinc-500/30 text-zinc-400"
+                          ? "border-red-500/30 text-red-400"
+                          : "border-zinc-500/30 text-zinc-400"
                     }
                   >
                     {call.sentiment_score > 0 ? "+" : ""}
@@ -185,31 +206,92 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
                 />
               )}
 
-              {/* QA Criteria */}
-              {call.criteria_scores && (
+              {/* V2: 5-pillar scorecard */}
+              {v2 && v2.pillars.length > 0 && (
                 <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-zinc-200">
-                    QA Criteria (5-point evaluation)
-                  </h3>
+                  <div className="flex items-baseline justify-between">
+                    <h3 className="text-sm font-semibold text-zinc-200">
+                      5-Pillar Scorecard
+                    </h3>
+                    <span className="text-xs text-muted-foreground">
+                      Total {v2.total_score}/50 · Avg {v2.avg_score.toFixed(1)}
+                      /10
+                    </span>
+                  </div>
                   <div className="grid gap-2">
-                    {Object.entries(
-                      call.criteria_scores as Record<string, string>
-                    ).map(([criterion, score]) => (
+                    {v2.pillars.map((p) => {
+                      const cs = levelClasses(p.level);
+                      return (
+                        <div
+                          key={p.name}
+                          className={`rounded-lg border ${cs.border} ${cs.bg} p-3`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-2 min-w-0">
+                              <span className="text-base leading-none mt-0.5">
+                                {p.emoji}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="text-sm font-semibold text-zinc-100 truncate">
+                                  {p.name}
+                                </div>
+                                {p.impact && (
+                                  <div className="text-xs text-zinc-400 mt-0.5">
+                                    {p.impact}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div
+                              className={`text-sm font-bold ${cs.text} shrink-0`}
+                            >
+                              {p.score}/10
+                            </div>
+                          </div>
+                          {p.prescribed_fix && (
+                            <PillarDetail pillar={p} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* V2: The Critical Moment */}
+              {v2?.critical_moment && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
+                  <h4 className="text-sm font-semibold text-amber-400 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    The Critical Moment
+                  </h4>
+                  <p className="text-sm text-zinc-300 whitespace-pre-line">
+                    {v2.critical_moment}
+                  </p>
+                </div>
+              )}
+
+              {/* V2: Pattern Flags */}
+              {v2 && v2.pattern_flags.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold text-red-400 flex items-center gap-2">
+                    <Flag className="h-4 w-4" />
+                    Closing Intelligence — Pattern Flags
+                  </h4>
+                  <div className="space-y-1.5">
+                    {v2.pattern_flags.map((flag, i) => (
                       <div
-                        key={criterion}
-                        className="flex items-center justify-between rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-3"
+                        key={i}
+                        className="rounded-md border border-red-500/25 bg-red-500/5 px-3 py-2 text-sm text-red-300"
                       >
-                        <span className="text-sm text-zinc-300">
-                          {criterion}
-                        </span>
-                        {scoreBadge(score)}
+                        ⚠ {flag}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Strengths & Improvements */}
+              {/* Strengths & Improvements (unchanged, still populated by pipeline) */}
               <div className="grid gap-4 md:grid-cols-2">
                 {call.strengths && (call.strengths as string[]).length > 0 && (
                   <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4 space-y-2">
@@ -242,8 +324,24 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
                   )}
               </div>
 
-              {/* Action Plan */}
-              {call.critical_action_plan && (
+              {/* V2: Priority Action Items */}
+              {v2 && v2.action_items.length > 0 && (
+                <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4 space-y-2">
+                  <h4 className="text-sm font-semibold text-emerald-400">
+                    Priority Action Items
+                  </h4>
+                  <ol className="space-y-2 list-decimal list-inside">
+                    {v2.action_items.map((item, i) => (
+                      <li key={i} className="text-sm text-zinc-300">
+                        {item}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {/* Legacy: Action Plan (pipeline-level, always populated for critical) */}
+              {!v2?.action_items?.length && call.critical_action_plan && (
                 <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-4 space-y-2">
                   <h4 className="text-sm font-semibold text-red-400">
                     Action Plan
@@ -272,5 +370,55 @@ export function CallDetailModal({ callId, open, onClose }: CallDetailModalProps)
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Collapsible-ish detail block for a single pillar. Shows the client
+ * signal, rep response, diagnosis, and prescribed fix if they were
+ * extracted by the parser.
+ */
+function PillarDetail({ pillar }: { pillar: QAPillarResult }) {
+  return (
+    <div className="mt-3 space-y-2 border-t border-zinc-800 pt-3">
+      {pillar.client_signal && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-0.5">
+            Client Signal
+          </div>
+          <div className="text-xs italic text-zinc-400 border-l-2 border-zinc-700 pl-2">
+            {pillar.client_signal}
+          </div>
+        </div>
+      )}
+      {pillar.rep_response && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-0.5">
+            Rep Response
+          </div>
+          <div className="text-xs italic text-zinc-400 border-l-2 border-zinc-700 pl-2">
+            {pillar.rep_response}
+          </div>
+        </div>
+      )}
+      {pillar.diagnosis && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-0.5">
+            Diagnosis
+          </div>
+          <div className="text-xs text-zinc-300">{pillar.diagnosis}</div>
+        </div>
+      )}
+      {pillar.prescribed_fix && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-0.5">
+            Prescribed Fix — Script
+          </div>
+          <div className="text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-500/25 rounded px-2 py-1.5">
+            {pillar.prescribed_fix}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

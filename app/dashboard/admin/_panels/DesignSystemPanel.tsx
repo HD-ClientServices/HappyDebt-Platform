@@ -384,7 +384,7 @@ export function DesignSystemPanel() {
                 {[
                   { title: "Total Leads", value: "1,234" },
                   { title: "Live Transfers", value: "456" },
-                  { title: "Conversion Rate", value: "37%" },
+                  { title: "Closing Rate", value: "37%" },
                 ].map((stat) => (
                   <div key={stat.title} className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
                     <p className="text-xs text-muted-foreground">{stat.title}</p>

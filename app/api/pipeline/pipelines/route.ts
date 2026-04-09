@@ -1,43 +1,45 @@
 /**
- * GET /api/pipeline/pipelines — list GHL pipelines for the location.
- * Used by Settings UI to pick the "opening pipeline".
+ * GET /api/pipeline/pipelines — list GHL pipelines for the global account.
+ *
+ * Used by the Admin → GHL Integration panel to populate the
+ * Opening / Closing pipeline dropdowns. Reads credentials from the
+ * singleton `ghl_integration` row (migration 00015), not from any
+ * per-org column — there is one Go High Level account for the entire
+ * platform.
+ *
+ * Auth: requires an authenticated user. Pipeline names aren't secret,
+ * so we don't gate this on intro_admin specifically. (The Save action
+ * is gated separately on the admin endpoint.)
  */
 
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { GHLClient } from "@/lib/ghl/client";
-import { getEffectiveOrgId } from "@/lib/auth/getEffectiveOrgId";
+import {
+  getGHLGlobalConfig,
+  GHLNotConfiguredError,
+} from "@/lib/ghl/getGlobalConfig";
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const ctx = await getEffectiveOrgId(request);
-    if (!ctx.userId) {
+    // Require an authenticated user (any role).
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgId = ctx.effectiveOrgId;
-    if (!orgId) {
-      return NextResponse.json({ error: "No org context" }, { status: 400 });
-    }
 
-    const admin = createAdminClient();
-    const { data: org } = await admin
-      .from("organizations")
-      .select("ghl_api_token, ghl_location_id")
-      .eq("id", orgId)
-      .single();
-
-    if (!org?.ghl_api_token || !org?.ghl_location_id) {
-      return NextResponse.json(
-        { error: "GHL credentials not configured" },
-        { status: 400 }
-      );
-    }
-
-    const ghl = new GHLClient(org.ghl_api_token, org.ghl_location_id);
+    const config = await getGHLGlobalConfig();
+    const ghl = new GHLClient(config.apiToken, config.locationId);
     const pipelines = await ghl.getPipelines();
 
     return NextResponse.json({ pipelines });
   } catch (error) {
+    if (error instanceof GHLNotConfiguredError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 500 });
   }

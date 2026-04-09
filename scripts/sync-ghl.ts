@@ -1,10 +1,49 @@
 /**
- * Go High Level (GHL) -> Supabase Initial Sync Script
- * 
+ * ⚠️ DEPRECATED — DO NOT RUN.
+ *
+ * This script was used for the very first GHL → Supabase data import
+ * during project setup. It is broken for normal operation because:
+ *
+ *   1. It iterates over ALL opportunities (every pipeline, every status
+ *      — open, won, lost, abandoned) and inserts each one as a
+ *      `live_transfers` row.
+ *   2. There is no filter by pipeline (neither opening nor closing).
+ *   3. It sets `closing_status = NULL` on every row (that column didn't
+ *      exist when the script was written).
+ *   4. It leaves orphaned rows forever — subsequent runs of the in-app
+ *      sync (`/api/pipeline/sync`) then have to work around the garbage.
+ *
+ * Running it again will re-pollute `live_transfers` with thousands of
+ * orphaned rows. The in-app sync has an explicit stale cleanup that
+ * will catch most of them eventually, but it's an avoidable mess.
+ *
+ * The correct sync is at `app/api/pipeline/sync/route.ts`. It only
+ * pulls won-opps from the configured opening pipeline, upserts them,
+ * and DB-level-cleans any stale rows in one query.
+ *
+ * If you genuinely need to re-import data from GHL, use that endpoint
+ * (trigger it via the "Refresh from GHL" button in the Live Transfers
+ * page or `curl` the route directly with a valid session).
+ *
  * Run with: npx tsx scripts/sync-ghl.ts
  */
 
 export { };
+
+// Safety guard: abort unless the operator explicitly opts in.
+if (process.env.ALLOW_LEGACY_GHL_SYNC !== "yes-i-know-this-is-dangerous") {
+  console.error(
+    "⛔ scripts/sync-ghl.ts is deprecated and will NOT run.\n" +
+      "   It inserts every GHL opportunity (no pipeline/status filter)\n" +
+      "   and pollutes live_transfers with orphaned rows.\n" +
+      "   Use /api/pipeline/sync via the Live Transfers page instead.\n" +
+      "\n" +
+      "   If you really need to bypass this guard, set:\n" +
+      "     ALLOW_LEGACY_GHL_SYNC=yes-i-know-this-is-dangerous"
+  );
+  process.exit(1);
+}
+
 const { createClient } = require("@supabase/supabase-js");
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;

@@ -7,6 +7,7 @@ import { KPIRow } from "./KPIRow";
 import { LeadsOverviewTable } from "./LeadsOverviewTable";
 import { DateRangePicker } from "./DateRangePicker";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RefreshFromGhlButton } from "@/components/live-transfers/RefreshFromGhlButton";
 
 const DailyBarChart = dynamic(
   () => import("./DailyBarChart").then((m) => ({ default: m.DailyBarChart })),
@@ -27,9 +28,15 @@ export default function LiveTransfersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="font-heading text-2xl font-semibold">Live Transfers</h1>
-        <DateRangePicker dateRange={dateRange} onDateRangeChange={setDateRange} />
+        <div className="flex items-center gap-2">
+          <RefreshFromGhlButton />
+          <DateRangePicker
+            dateRange={dateRange}
+            onDateRangeChange={setDateRange}
+          />
+        </div>
       </div>
       <KPIRow dateRange={dateRange} />
       <DailyBarChart

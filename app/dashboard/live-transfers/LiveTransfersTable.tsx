@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatUSD } from "@/lib/utils/format-currency";
 
 export function LiveTransfersTable() {
   const supabase = createClient();
@@ -98,12 +99,7 @@ export function LiveTransfersTable() {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  {row.amount != null
-                    ? new Intl.NumberFormat("es-CL", {
-                        style: "currency",
-                        currency: "USD",
-                      }).format(Number(row.amount))
-                    : "—"}
+                  {formatUSD(row.amount)}
                 </TableCell>
               </TableRow>
             ))

@@ -13,6 +13,8 @@ import type {
   GHLPipeline,
   GHLPipelinesResponse,
   GHLOpportunitiesResponse,
+  GHLOpportunity,
+  GHLCustomField,
   DiscoveredCall,
 } from "./types";
 
@@ -27,25 +29,62 @@ export class GHLClient {
     this.locationId = locationId;
   }
 
-  private async request<T>(endpoint: string, method = "GET", body?: unknown): Promise<T> {
+  /**
+   * Low-level request helper with automatic retry on HTTP 429
+   * (Too Many Requests).
+   *
+   * GHL's rate limit is roughly 120 requests per minute per API token.
+   * The sync pipeline can easily burst past that when it runs
+   * `discoverRecentCalls()` (which fans out per conversation) in
+   * parallel with the per-contact custom field fetch. We handle 429s
+   * here rather than in each caller so every GHL method benefits
+   * uniformly.
+   *
+   * Retry policy: up to 3 attempts, exponential backoff starting at
+   * 1 second (1s → 2s → 4s). After the last attempt the original
+   * error is thrown so callers can surface it.
+   */
+  private async request<T>(
+    endpoint: string,
+    method = "GET",
+    body?: unknown
+  ): Promise<T> {
     const url = `${GHL_BASE_URL}${endpoint}`;
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Version: "2021-07-28",
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const MAX_ATTEMPTS = 3;
 
-    if (!res.ok) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      if (res.ok) {
+        return res.json() as Promise<T>;
+      }
+
+      // Retry on 429 (rate limit). Everything else fails fast.
+      if (res.status === 429 && attempt < MAX_ATTEMPTS) {
+        const backoffMs = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+        console.warn(
+          `[GHL] 429 on ${method} ${endpoint} — retrying in ${backoffMs}ms (attempt ${attempt}/${MAX_ATTEMPTS})`
+        );
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+
       const errorText = await res.text();
       throw new Error(`GHL API Error ${res.status}: ${errorText}`);
     }
 
-    return res.json() as Promise<T>;
+    // Unreachable — the loop either returns on success or throws on the
+    // last failed attempt. TypeScript needs this for control-flow.
+    throw new Error(`GHL API Error: exhausted ${MAX_ATTEMPTS} retries on ${endpoint}`);
   }
 
   /** Download recording as binary buffer */
@@ -169,6 +208,60 @@ export class GHLClient {
     }
   }
 
+  /**
+   * List every custom field defined on the current location — contact,
+   * opportunity, and business fields all come back in the same list.
+   * Used by the sync to resolve the `contact.closer` field id once per
+   * run, then look up closer names from each contact's `customFields`
+   * array (which identifies fields by id, not by fieldKey).
+   *
+   * Returns an empty array on any error so callers can fall back to
+   * a null `closer_id` without blowing up the whole sync.
+   */
+  async getCustomFields(): Promise<GHLCustomField[]> {
+    try {
+      const data = await this.request<{ customFields: GHLCustomField[] }>(
+        `/locations/${this.locationId}/customFields`
+      );
+      return data.customFields ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Update the status of a GHL opportunity via the dedicated
+   * `PUT /opportunities/{id}/status` endpoint.
+   *
+   * Valid status values per the GHL API docs (see
+   * `docs/skills/ghl-api/references/opportunities.md`):
+   *   - `open`      — in progress
+   *   - `won`       — deal closed successfully
+   *   - `lost`      — deal lost
+   *   - `abandoned` — lead ghosted / no response
+   *
+   * Note: `disqualified` is NOT a valid GHL status value. In GHL,
+   * disqualified leads live in a closing-pipeline stage named
+   * something like "DQ Lead" — the sync code detects it by matching
+   * the stage name. This helper does NOT handle moving opps to
+   * specific stages; for that use `PUT /opportunities/{id}` with
+   * `pipelineStageId` instead.
+   *
+   * Throws `GHL API Error N: ...` on failure (through the shared
+   * request() helper with its retry-on-429 behavior). Callers should
+   * catch and surface the error to the user.
+   */
+  async updateOpportunityStatus(
+    opportunityId: string,
+    status: "open" | "won" | "lost" | "abandoned"
+  ): Promise<void> {
+    await this.request(
+      `/opportunities/${opportunityId}/status`,
+      "PUT",
+      { status }
+    );
+  }
+
   /** Get all pipelines for this location */
   async getPipelines(): Promise<GHLPipeline[]> {
     const data = await this.request<GHLPipelinesResponse>(
@@ -187,6 +280,52 @@ export class GHLClient {
     if (opts?.startAfter) url += `&startAfter=${opts.startAfter}`;
     if (opts?.startAfterId) url += `&startAfterId=${opts.startAfterId}`;
     return this.request<GHLOpportunitiesResponse>(url);
+  }
+
+  /**
+   * Fetch ALL opportunities from a pipeline (handles cursor-based
+   * pagination internally). Optionally filter by status.
+   *
+   * Use this when you need the full set in one call (e.g., to build a
+   * Map for cross-pipeline matching). For Rise's CLOSING PIPELINE this
+   * is ~141 opps, manageable in a single sync.
+   */
+  async getAllOpportunities(
+    pipelineId: string,
+    opts?: { status?: string }
+  ): Promise<GHLOpportunity[]> {
+    const all: GHLOpportunity[] = [];
+    let startAfter: string | undefined;
+    let startAfterId: string | undefined;
+    let hasMore = true;
+    let safety = 0;
+
+    while (hasMore && safety < 100) {
+      safety++;
+      const res = await this.searchOpportunities(pipelineId, {
+        status: opts?.status,
+        startAfter,
+        startAfterId,
+      });
+      const batch = res.opportunities || [];
+      all.push(...batch);
+
+      // GHL signals end of pagination by omitting nextPageUrl OR returning
+      // an empty batch.
+      if (
+        batch.length === 0 ||
+        !res.meta?.nextPageUrl ||
+        !res.meta.startAfter ||
+        !res.meta.startAfterId
+      ) {
+        hasMore = false;
+      } else {
+        startAfter = res.meta.startAfter;
+        startAfterId = res.meta.startAfterId;
+      }
+    }
+
+    return all;
   }
 
   /**
