@@ -20,42 +20,41 @@ import {
   RefreshCw,
   Plug2,
   AlertTriangle,
+  Info,
 } from "lucide-react";
-import type { GHLPipeline } from "@/lib/ghl/types";
 
 /**
  * Admin → GHL Integration panel.
  *
- * Single source of truth for the platform's Go High Level configuration.
- * Backed by the singleton `ghl_integration` row (migration 00015) — there
- * is one Go High Level account for the entire product, not one per org.
+ * Single source of truth for the **global** Go High Level credentials
+ * — the api_token, location_id, and reconnect webhook URL. There is
+ * ONE GHL account for the entire platform, and these three fields
+ * are everything the platform needs to talk to it.
  *
- * The panel renders four sections:
+ * ## What's NOT here
  *
- *   1. **Credentials** — API token (private integration token) and
- *      location id. These together let the platform call any GHL API
- *      on behalf of the account.
- *   2. **Pipelines** — opening + closing pipeline IDs. Once credentials
- *      are saved we fetch the live pipelines from GHL via
- *      `/api/pipeline/pipelines` and render them as `<select>`s. Before
- *      that we fall back to free-text inputs.
- *   3. **Reconnect Webhook** — Make.com / GHL webhook fired by the
- *      "Reconnect lead" button in the Live Transfers table.
- *   4. **Actions** — Test Connection (direct fetch to GHL with the
- *      current form values, no save needed) + Sync Calls (runs the full
- *      pipeline on the org most recently active in the platform).
+ * Opening and closing pipeline IDs are **per-org**, not global. Each
+ * client organization has its own opening/closing pipelines inside
+ * the shared GHL account. The sync and webhook routing logic uses
+ * the pipeline_id to figure out which org owns each opportunity. To
+ * configure pipelines for a specific org, go to:
  *
- * All read/writes go through `/api/admin/ghl-integration`. That endpoint
- * enforces intro_admin access; this component does no auth check of its
- * own (it's only mounted from the Admin page, which is server-rendered
- * behind an intro_admin gate).
+ *   Admin → Organizations → Configure Pipelines (per org card)
+ *
+ * The earlier iteration of this panel had opening/closing dropdowns
+ * at the global level; that modeling was wrong because it forced
+ * every org's opportunities to live under the same pipeline_id. See
+ * migration 00016 for the writeup.
+ *
+ * All read/writes go through `/api/admin/ghl-integration`. That
+ * endpoint enforces intro_admin access; this component does no auth
+ * check of its own (mounted from the server-rendered Admin page
+ * that's already gated).
  */
 
 interface GHLConfig {
   api_token: string | null;
   location_id: string | null;
-  opening_pipeline_id: string | null;
-  closing_pipeline_id: string | null;
   reconnect_webhook_url: string | null;
   updated_at?: string;
   updated_by?: string;
@@ -68,8 +67,6 @@ export function GHLIntegrationPanel() {
   // Form state — initialised once data loads
   const [token, setToken] = useState("");
   const [locationId, setLocationId] = useState("");
-  const [openingPipelineId, setOpeningPipelineId] = useState("");
-  const [closingPipelineId, setClosingPipelineId] = useState("");
   const [reconnectWebhookUrl, setReconnectWebhookUrl] = useState("");
 
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -93,29 +90,11 @@ export function GHLIntegrationPanel() {
     if (!config) return;
     setToken(config.api_token ?? "");
     setLocationId(config.location_id ?? "");
-    setOpeningPipelineId(config.opening_pipeline_id ?? "");
-    setClosingPipelineId(config.closing_pipeline_id ?? "");
     setReconnectWebhookUrl(config.reconnect_webhook_url ?? "");
   }, [config]);
 
   const isConnected = !!(config?.api_token && config?.location_id);
   const migrationPending = config?.migration_pending === true;
-
-  // ── Pipelines for the dropdowns (only when already connected) ────
-  const { data: pipelinesData, isLoading: pipelinesLoading } = useQuery<{
-    pipelines: GHLPipeline[];
-  }>({
-    queryKey: ["admin-ghl-pipelines"],
-    enabled: isConnected,
-    queryFn: async () => {
-      const res = await fetch("/api/pipeline/pipelines");
-      if (!res.ok) return { pipelines: [] };
-      return res.json();
-    },
-    refetchOnWindowFocus: false,
-  });
-
-  const pipelines = pipelinesData?.pipelines ?? [];
 
   // ── Save mutation ────────────────────────────────────────────────
   const saveMutation = useMutation({
@@ -126,8 +105,6 @@ export function GHLIntegrationPanel() {
         body: JSON.stringify({
           api_token: token,
           location_id: locationId,
-          opening_pipeline_id: openingPipelineId || null,
-          closing_pipeline_id: closingPipelineId || null,
           reconnect_webhook_url: reconnectWebhookUrl || null,
         }),
       });
@@ -141,7 +118,6 @@ export function GHLIntegrationPanel() {
       setSavedAt(Date.now());
       setTimeout(() => setSavedAt(null), 2000);
       queryClient.invalidateQueries({ queryKey: ["admin-ghl-integration"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-ghl-pipelines"] });
     },
   });
 
@@ -186,7 +162,7 @@ export function GHLIntegrationPanel() {
     }
   };
 
-  // ── Sync mutation (uses saved credentials, not form values) ─────
+  // ── Sync mutation (runs the sync for ALL configured orgs) ───────
   const syncMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/pipeline/sync", { method: "POST" });
@@ -229,8 +205,8 @@ export function GHLIntegrationPanel() {
                 Go High Level Integration
               </CardTitle>
               <CardDescription>
-                One global GHL account powers Live Transfers, Closing
-                Intelligence and the QA pipeline for every organization.
+                Global credentials for the single GHL account. Pipeline
+                selection is per-organization (see Organizations tab).
               </CardDescription>
             </div>
           </div>
@@ -301,76 +277,6 @@ export function GHLIntegrationPanel() {
           </div>
         </div>
 
-        {/* Pipelines */}
-        <div className="space-y-4 max-w-2xl pt-2 border-t border-zinc-800">
-          <div className="space-y-2">
-            <Label htmlFor="opening-pipeline">Opening Pipeline</Label>
-            {isConnected && pipelines.length > 0 ? (
-              <select
-                id="opening-pipeline"
-                value={openingPipelineId}
-                onChange={(e) => setOpeningPipelineId(e.target.value)}
-                disabled={pipelinesLoading}
-                className="flex h-10 w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="">— Auto-detect by name —</option>
-                {pipelines.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <Input
-                id="opening-pipeline"
-                value={openingPipelineId}
-                onChange={(e) => setOpeningPipelineId(e.target.value)}
-                placeholder="e.g. 85kFh5EWKPg7qg9FDJfg"
-                className="bg-zinc-800 border-zinc-700 font-mono text-xs"
-              />
-            )}
-            <p className="text-xs text-muted-foreground">
-              The pipeline whose &ldquo;won&rdquo; opportunities count as
-              live transfers. Drives the &ldquo;Total Live Transfers&rdquo;
-              KPI on the dashboard.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="closing-pipeline">Closing Pipeline</Label>
-            {isConnected && pipelines.length > 0 ? (
-              <select
-                id="closing-pipeline"
-                value={closingPipelineId}
-                onChange={(e) => setClosingPipelineId(e.target.value)}
-                disabled={pipelinesLoading}
-                className="flex h-10 w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="">— None —</option>
-                {pipelines.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <Input
-                id="closing-pipeline"
-                value={closingPipelineId}
-                onChange={(e) => setClosingPipelineId(e.target.value)}
-                placeholder="e.g. xXSPcEgGwRNwxndym0c7"
-                className="bg-zinc-800 border-zinc-700 font-mono text-xs"
-              />
-            )}
-            <p className="text-xs text-muted-foreground">
-              The pipeline closers work the deal in. Used to derive
-              <code className="text-zinc-400 mx-1">closed_won</code>/
-              <code className="text-zinc-400 mx-1">closed_lost</code>/
-              <code className="text-zinc-400 mx-1">pending_to_close</code>.
-            </p>
-          </div>
-        </div>
-
         {/* Reconnect webhook */}
         <div className="space-y-4 max-w-2xl pt-2 border-t border-zinc-800">
           <div className="space-y-2">
@@ -393,13 +299,30 @@ export function GHLIntegrationPanel() {
           </div>
         </div>
 
+        {/* Pipelines are per-org — info box */}
+        <div className="rounded-lg bg-blue-500/5 border border-blue-500/25 p-4 flex items-start gap-3 max-w-2xl">
+          <Info className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
+          <div className="text-sm text-zinc-300 space-y-1">
+            <p className="font-medium text-blue-300">
+              Pipelines are configured per-organization
+            </p>
+            <p className="text-muted-foreground">
+              Each client org has its own opening and closing pipelines
+              inside the shared GHL account. To set them, go to{" "}
+              <strong className="text-zinc-200">
+                Admin → Organizations
+              </strong>{" "}
+              and click <strong className="text-zinc-200">Configure Pipelines</strong>{" "}
+              on the org card.
+            </p>
+          </div>
+        </div>
+
         {/* Actions */}
         <div className="flex flex-wrap gap-2 pt-4 border-t border-zinc-800">
           <Button
             onClick={() => saveMutation.mutate()}
-            disabled={
-              saveMutation.isPending || !token || !locationId
-            }
+            disabled={saveMutation.isPending || !token || !locationId}
             className="bg-emerald-600 hover:bg-emerald-700"
           >
             {saveMutation.isPending && (
@@ -430,13 +353,14 @@ export function GHLIntegrationPanel() {
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending || !isConnected}
             className="border-zinc-700"
+            title="Runs the full sync for every org that has a pipeline configured"
           >
             {syncMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Sync Calls
+            Sync All Orgs
           </Button>
         </div>
 

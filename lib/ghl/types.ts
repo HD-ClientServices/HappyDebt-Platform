@@ -7,6 +7,16 @@ export interface GHLCallWebhookPayload {
   call_duration: string | number;
   business_name: string;
   closer: string;
+  /**
+   * Optional pipeline id carried by newer GHL webhook payloads.
+   * When present, the webhook handler uses it to route the call to
+   * the org that owns that pipeline (`organizations.ghl_opening_pipeline_id`
+   * or `ghl_closing_pipeline_id`). When absent, the handler falls back
+   * to the single-configured-org path.
+   */
+  pipeline_id?: string;
+  /** Alias for pipeline_id — some GHL payloads use this casing. */
+  pipelineId?: string;
 }
 
 export interface GHLConversation {

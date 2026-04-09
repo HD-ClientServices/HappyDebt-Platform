@@ -32,9 +32,17 @@ export interface Organization {
   plan: OrgPlan;
   trial_ends_at: string | null;
   stripe_customer_id: string | null;
-  // GHL columns moved to the singleton `ghl_integration` table in
-  // migration 00015 — there is one Go High Level account for the entire
-  // platform, not one per org. Read via `lib/ghl/getGlobalConfig.ts`.
+  // GHL credentials (api_token, location_id, reconnect_webhook_url) live
+  // in the singleton `ghl_integration` table (migration 00015) — one GHL
+  // account for the entire platform. See lib/ghl/getGlobalConfig.ts.
+  //
+  // The per-org pipeline IDs below were dropped in 00015 and re-added
+  // in 00016 when we realized each client org has its own opening /
+  // closing pipeline inside the shared GHL account. Routing by pipeline
+  // ID is how the sync route distinguishes which org owns a live
+  // transfer.
+  ghl_opening_pipeline_id: string | null;
+  ghl_closing_pipeline_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -42,13 +50,20 @@ export interface Organization {
 /**
  * Singleton row in `public.ghl_integration` (one for the whole platform).
  * See migration 00015_unify_ghl_integration.sql for the why.
+ *
+ * The `opening_pipeline_id` and `closing_pipeline_id` columns are still
+ * in the physical table (00016 didn't drop them) but they're deprecated —
+ * the canonical source is now `organizations.ghl_*_pipeline_id`. A
+ * future migration will drop them from the singleton.
  */
 export interface GHLIntegrationConfig {
   /** Always `true` — singleton enforced by CHECK on the boolean PK. */
   id: true;
   api_token: string | null;
   location_id: string | null;
+  /** @deprecated since migration 00016 — use `Organization.ghl_opening_pipeline_id`. */
   opening_pipeline_id: string | null;
+  /** @deprecated since migration 00016 — use `Organization.ghl_closing_pipeline_id`. */
   closing_pipeline_id: string | null;
   reconnect_webhook_url: string | null;
   updated_at: string;

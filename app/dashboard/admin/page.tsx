@@ -53,9 +53,11 @@ export default async function AdminPage() {
   const orgsWithLeads = new Set((leadOrgs ?? []).map((r) => r.org_id)).size;
 
   // PLG: Retention
+  // We fetch the ghl_*_pipeline_id columns here too so the Organizations
+  // panel can show "Pipelines configured" badges without a second query.
   const { data: allOrgs } = await supabase
     .from("organizations")
-    .select("id, name, slug, plan")
+    .select("id, name, slug, plan, ghl_opening_pipeline_id, ghl_closing_pipeline_id")
     .order("created_at", { ascending: false });
 
   const { data: lastEvents } = await supabase
@@ -167,6 +169,7 @@ export default async function AdminPage() {
     plan: org.plan,
     usersCount: usersCountMap.get(org.id) ?? 0,
     leadsCount: leadsCountMap.get(org.id) ?? 0,
+    hasPipelinesConfigured: !!org.ghl_opening_pipeline_id,
   }));
 
   return <AdminContent plgData={plgData} orgs={orgs} />;

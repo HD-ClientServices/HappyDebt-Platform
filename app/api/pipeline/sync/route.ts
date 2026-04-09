@@ -1,8 +1,30 @@
 /**
- * Manual Sync — discovers recent calls from GHL and queues them for processing.
- * Also syncs "Opening Pipeline" won opportunities as live_transfers.
+ * Manual Sync — pulls fresh data from Go High Level for every client
+ * org that has a pipeline configured.
  *
- * Optimized: uses batched DB operations and parallel GHL API calls.
+ * ## Architecture (post migration 00016)
+ *
+ * GHL credentials (api_token, location_id) are GLOBAL — stored in the
+ * singleton `ghl_integration` row — because the platform talks to a
+ * single GHL account. Each client org has its OWN opening and closing
+ * pipelines inside that account, stored as `organizations.ghl_*_pipeline_id`.
+ *
+ * The previous (buggy) version of this route used `effectiveOrgId` from
+ * the impersonation header to decide which org owned synced rows. That
+ * allowed a sync triggered without an impersonation header to silently
+ * rewrite every live_transfer's `org_id` to the caller's home org —
+ * which happened in production: all 207 rows migrated from Rise to
+ * Intro in a single Sync Calls click from the admin panel.
+ *
+ * The fix: iterate over `organizations` that have `ghl_opening_pipeline_id`
+ * set, and sync each one independently. Ownership is derived from which
+ * pipeline an opportunity lives in, never from the caller's session.
+ *
+ * Auth: any authenticated user can trigger a sync. The sync never
+ * touches their own org — it iterates the configured client orgs. This
+ * is intentional: regular users need a way to refresh their own Live
+ * Transfers dashboard, and admins need a way to refresh every tenant
+ * at once. Both hit the same endpoint.
  */
 
 import { NextResponse } from "next/server";
@@ -12,29 +34,37 @@ import { getEffectiveOrgId } from "@/lib/auth/getEffectiveOrgId";
 import {
   getGHLGlobalConfig,
   GHLNotConfiguredError,
+  listConfiguredOrgPipelines,
+  type OrgPipelineConfig,
 } from "@/lib/ghl/getGlobalConfig";
 
 export const maxDuration = 60;
 
+interface OrgSyncResult {
+  org_id: string;
+  org_slug: string;
+  closers_synced: number;
+  calls_discovered: number;
+  calls_new: number;
+  jobs_created: number;
+  job_ids: string[];
+  transfers_synced: number;
+  stale_cleaned: number;
+  warning: string | null;
+}
+
 export async function POST(request: Request) {
   const t0 = Date.now();
   try {
+    // ── Auth: any authenticated user can trigger a sync ──────────
     const ctx = await getEffectiveOrgId(request);
     if (!ctx.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const effectiveOrgId = ctx.effectiveOrgId;
-    if (!effectiveOrgId) {
-      return NextResponse.json({ error: "No org context" }, { status: 400 });
-    }
 
     const adminSupabase = createAdminClient();
 
-    // Live transfers still belong to a specific org (they're per-tenant
-    // data), but the GHL credentials and pipeline IDs are global — the
-    // entire product talks to a single GHL account. Migration 00015
-    // moved those columns out of `organizations` into the singleton
-    // `ghl_integration` table; everything below reads them from there.
+    // ── Load global credentials from the singleton ───────────────
     let ghlConfig;
     try {
       ghlConfig = await getGHLGlobalConfig();
@@ -51,113 +81,75 @@ export async function POST(request: Request) {
       throw err;
     }
 
-    // Confirm the requested org actually exists before doing anything
-    // expensive. (We don't need any of its columns — just its id.)
-    const { data: org } = await adminSupabase
-      .from("organizations")
-      .select("id")
-      .eq("id", effectiveOrgId)
-      .single();
+    // ── List every org with a configured opening pipeline ────────
+    const configuredOrgs = await listConfiguredOrgPipelines();
 
-    if (!org) {
+    if (configuredOrgs.length === 0) {
       return NextResponse.json(
-        { error: "Organization not found" },
-        { status: 404 }
+        {
+          success: false,
+          error:
+            "No organizations have pipelines configured. Add an opening pipeline to at least one org under Admin → Organizations → Configure Pipelines.",
+        },
+        { status: 400 }
       );
     }
 
     const ghl = new GHLClient(ghlConfig.apiToken, ghlConfig.locationId);
 
-    // ── Step 1: Sync GHL users as closers (batched) ───────────────
-    const ghlUsers = await ghl.getUsers();
-    const activeUsers = ghlUsers.filter((u) => !u.deleted);
-
-    // Fetch all existing closers in one query
-    const { data: existingClosers } = await adminSupabase
-      .from("closers")
-      .select("id, ghl_user_id")
-      .eq("org_id", org.id);
-
-    const existingByGhlId = new Map(
-      (existingClosers || []).map((c) => [c.ghl_user_id, c.id])
-    );
-
-    const closerMap = new Map<string, string>();
-    const newClosers = [];
-
-    for (const u of activeUsers) {
-      const existingId = existingByGhlId.get(u.id);
-      if (existingId) {
-        closerMap.set(u.id, existingId);
-      } else {
-        newClosers.push({
-          org_id: org.id,
-          ghl_user_id: u.id,
-          name: u.name,
-          email: u.email,
-          phone: u.phone,
-          avatar_url: u.profilePhoto || null,
-          active: true,
-        });
-      }
+    // ── Sync each configured org in sequence ─────────────────────
+    //
+    // Running sequentially (rather than Promise.all) keeps GHL API
+    // rate-limit pressure predictable and makes log output readable.
+    // With N orgs the sync takes N × (~35s per org). If we ever grow
+    // past a handful of tenants we can parallelize.
+    const orgResults: OrgSyncResult[] = [];
+    for (const org of configuredOrgs) {
+      const result = await syncOneOrg(ghl, adminSupabase, org);
+      orgResults.push(result);
     }
 
-    let closersSynced = 0;
-    if (newClosers.length > 0) {
-      const { data: inserted } = await adminSupabase
-        .from("closers")
-        .insert(newClosers)
-        .select("id, ghl_user_id");
-      (inserted || []).forEach((c) => closerMap.set(c.ghl_user_id, c.id));
-      closersSynced = inserted?.length ?? 0;
-    }
-
-    // ── Run Steps 2-3 (calls) and Step 6 (opportunities) in PARALLEL ──
-    const [callsResult, oppsResult] = await Promise.all([
-      syncCalls(ghl, adminSupabase, org.id, closerMap),
-      syncOpportunities(
-        ghl,
-        adminSupabase,
-        org.id,
-        closerMap,
-        ghlConfig.openingPipelineId,
-        ghlConfig.closingPipelineId
-      ),
-    ]);
-
-    // ── Step 5: Trigger pipeline workers (fire-and-forget) ────────
+    // ── Fire pipeline workers for all queued jobs (global) ───────
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-    for (const jobId of callsResult.jobIds) {
-      fetch(`${baseUrl}/api/pipeline/process`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-pipeline-secret": process.env.PIPELINE_SECRET || "",
-        },
-        body: JSON.stringify({ jobId }),
-      }).catch(() => {});
+    for (const result of orgResults) {
+      for (const jobId of result.job_ids) {
+        fetch(`${baseUrl}/api/pipeline/process`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-pipeline-secret": process.env.PIPELINE_SECRET || "",
+          },
+          body: JSON.stringify({ jobId }),
+        }).catch(() => {});
+      }
     }
 
+    const totalTransfers = orgResults.reduce(
+      (sum, r) => sum + r.transfers_synced,
+      0
+    );
+    const totalJobs = orgResults.reduce((sum, r) => sum + r.jobs_created, 0);
+    const totalCleaned = orgResults.reduce(
+      (sum, r) => sum + r.stale_cleaned,
+      0
+    );
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-    console.log(`[sync] Done in ${elapsed}s — ${closersSynced} closers, ${callsResult.jobsCreated} calls, ${oppsResult.transfersSynced} transfers`);
+
+    console.log(
+      `[sync] Done in ${elapsed}s — ${configuredOrgs.length} org(s), ${totalTransfers} transfers upserted, ${totalJobs} jobs queued, ${totalCleaned} stale cleaned`
+    );
 
     return NextResponse.json({
       success: true,
-      closers_synced: closersSynced,
-      calls_discovered: callsResult.discovered,
-      calls_new: callsResult.newCalls,
-      calls_duplicate: callsResult.discovered - callsResult.newCalls,
-      jobs_created: callsResult.jobsCreated,
-      transfers_synced: oppsResult.transfersSynced,
-      pipeline_warning: oppsResult.warning,
+      orgs_synced: orgResults,
+      total_transfers_synced: totalTransfers,
+      total_jobs_created: totalJobs,
+      total_stale_cleaned: totalCleaned,
       elapsed_seconds: elapsed,
-      message:
-        oppsResult.warning
-          ? `Synced ${callsResult.jobsCreated} call(s). ⚠️ ${oppsResult.warning}`
-          : `Synced ${oppsResult.transfersSynced} funded transfer(s) and queued ${callsResult.jobsCreated} call(s) for analysis. (${elapsed}s)`,
+      message: `Synced ${totalTransfers} transfer(s) and queued ${totalJobs} call(s) for analysis across ${configuredOrgs.length} org(s). (${elapsed}s)`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -166,42 +158,135 @@ export async function POST(request: Request) {
   }
 }
 
-// ── Calls sync (Steps 2-4) ────────────────────────────────────────
+// ── Per-org sync ──────────────────────────────────────────────────
+//
+// Runs the full sync pipeline for a single org: closers → calls →
+// opportunities. Returns a summary so the main handler can aggregate
+// results across multiple orgs.
+async function syncOneOrg(
+  ghl: GHLClient,
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  org: OrgPipelineConfig
+): Promise<OrgSyncResult> {
+  console.log(
+    `[sync] [${org.orgSlug}] Starting (opening=${org.openingPipelineId ?? "null"}, closing=${org.closingPipelineId ?? "null"})`
+  );
+
+  // ── Step 1: Sync GHL users as closers for this org ───────────
+  const ghlUsers = await ghl.getUsers();
+  const activeUsers = ghlUsers.filter((u) => !u.deleted);
+
+  const { data: existingClosers } = await adminSupabase
+    .from("closers")
+    .select("id, ghl_user_id")
+    .eq("org_id", org.orgId);
+
+  const existingByGhlId = new Map(
+    (existingClosers || []).map((c) => [c.ghl_user_id, c.id])
+  );
+
+  const closerMap = new Map<string, string>();
+  const newClosers = [];
+
+  for (const u of activeUsers) {
+    const existingId = existingByGhlId.get(u.id);
+    if (existingId) {
+      closerMap.set(u.id, existingId);
+    } else {
+      newClosers.push({
+        org_id: org.orgId,
+        ghl_user_id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        avatar_url: u.profilePhoto || null,
+        active: true,
+      });
+    }
+  }
+
+  let closersSynced = 0;
+  if (newClosers.length > 0) {
+    const { data: inserted } = await adminSupabase
+      .from("closers")
+      .insert(newClosers)
+      .select("id, ghl_user_id");
+    (inserted || []).forEach((c) => closerMap.set(c.ghl_user_id, c.id));
+    closersSynced = inserted?.length ?? 0;
+  }
+
+  // ── Steps 2-3 (calls) and Step 4 (opportunities) in parallel ─
+  const [callsResult, oppsResult] = await Promise.all([
+    syncCalls(ghl, adminSupabase, org.orgId),
+    syncOpportunities(ghl, adminSupabase, org, closerMap),
+  ]);
+
+  return {
+    org_id: org.orgId,
+    org_slug: org.orgSlug,
+    closers_synced: closersSynced,
+    calls_discovered: callsResult.discovered,
+    calls_new: callsResult.newCalls,
+    jobs_created: callsResult.jobsCreated,
+    job_ids: callsResult.jobIds,
+    transfers_synced: oppsResult.transfersSynced,
+    stale_cleaned: oppsResult.cleanedCount,
+    warning: oppsResult.warning,
+  };
+}
+
+// ── Calls discovery + job queueing ────────────────────────────────
+//
+// Discovers recent completed calls from the global GHL account and
+// queues them as processing_jobs scoped to the given org. This is
+// run once per configured org, which means with multiple configured
+// orgs the same call could be queued N times. For the single-tenant
+// case today this is fine; multi-tenant routing is tech debt (TODO
+// in the webhook handler header as well).
 async function syncCalls(
   ghl: GHLClient,
   adminSupabase: ReturnType<typeof createAdminClient>,
-  orgId: string,
-  closerMap: Map<string, string>
+  orgId: string
 ) {
-  console.log("[sync] Discovering recent calls from GHL...");
+  console.log(`[sync] [${orgId.slice(0, 8)}] Discovering recent calls...`);
   const discoveredCalls = await ghl.discoverRecentCalls(100);
-  console.log(`[sync] Found ${discoveredCalls.length} completed call(s)`);
+  console.log(
+    `[sync] [${orgId.slice(0, 8)}] Found ${discoveredCalls.length} completed call(s)`
+  );
 
-  // Dedup — single query
   const { data: existingRecordings } = await adminSupabase
     .from("call_recordings")
     .select("ghl_message_id, ghl_conversation_id")
     .eq("org_id", orgId);
 
   const existingMessageIds = new Set(
-    (existingRecordings || []).map((r: { ghl_message_id: string | null }) => r.ghl_message_id).filter(Boolean)
+    (existingRecordings || [])
+      .map((r: { ghl_message_id: string | null }) => r.ghl_message_id)
+      .filter(Boolean)
   );
   const existingConvIds = new Set(
-    (existingRecordings || []).map((r: { ghl_conversation_id: string | null }) => r.ghl_conversation_id).filter(Boolean)
+    (existingRecordings || [])
+      .map((r: { ghl_conversation_id: string | null }) => r.ghl_conversation_id)
+      .filter(Boolean)
   );
 
   const newCalls = discoveredCalls.filter(
-    (call) => !existingMessageIds.has(call.messageId) && !existingConvIds.has(call.conversationId)
+    (call) =>
+      !existingMessageIds.has(call.messageId) &&
+      !existingConvIds.has(call.conversationId)
   );
 
-  console.log(`[sync] ${newCalls.length} new call(s) after dedup`);
+  console.log(
+    `[sync] [${orgId.slice(0, 8)}] ${newCalls.length} new call(s) after dedup`
+  );
 
-  // ── Resolve or create leads for each call by ghl_contact_id ──────
-  const contactIds = [...new Set(newCalls.map((c) => c.contactId).filter(Boolean))];
+  // ── Resolve or create leads by ghl_contact_id ─────────────────
+  const contactIds = Array.from(
+    new Set(newCalls.map((c) => c.contactId).filter(Boolean))
+  );
   const leadByContactId = new Map<string, string>();
 
   if (contactIds.length > 0) {
-    // Fetch existing leads for these contacts in one query
     const { data: existingLeads } = await adminSupabase
       .from("leads")
       .select("id, ghl_contact_id")
@@ -212,10 +297,10 @@ async function syncCalls(
       if (lead.ghl_contact_id) leadByContactId.set(lead.ghl_contact_id, lead.id);
     }
 
-    // Create missing leads
-    const missingContactIds = contactIds.filter((cid) => !leadByContactId.has(cid));
+    const missingContactIds = contactIds.filter(
+      (cid) => !leadByContactId.has(cid)
+    );
     if (missingContactIds.length > 0) {
-      // Build a lookup from contactId → call info for name/phone
       const callInfoByContactId = new Map(
         newCalls.filter((c) => c.contactId).map((c) => [c.contactId, c])
       );
@@ -239,18 +324,24 @@ async function syncCalls(
           .insert(chunk)
           .select("id, ghl_contact_id");
         if (error) {
-          console.error("[sync] Lead creation error:", error.message);
+          console.error(
+            `[sync] [${orgId.slice(0, 8)}] Lead creation error:`,
+            error.message
+          );
         } else {
           for (const lead of inserted || []) {
-            if (lead.ghl_contact_id) leadByContactId.set(lead.ghl_contact_id, lead.id);
+            if (lead.ghl_contact_id)
+              leadByContactId.set(lead.ghl_contact_id, lead.id);
           }
         }
       }
-      console.log(`[sync] Created ${missingContactIds.length} new lead(s) for calls`);
+      console.log(
+        `[sync] [${orgId.slice(0, 8)}] Created ${missingContactIds.length} new lead(s)`
+      );
     }
   }
 
-  // Batch insert processing jobs
+  // ── Batch insert processing jobs ─────────────────────────────
   const jobIds: string[] = [];
   if (newCalls.length > 0) {
     const jobRows = newCalls.map((call) => ({
@@ -268,13 +359,14 @@ async function syncCalls(
         conversation_id: call.conversationId,
         direction: call.direction,
         call_date: call.callDate,
-        lead_id: call.contactId ? leadByContactId.get(call.contactId) || null : null,
+        lead_id: call.contactId
+          ? leadByContactId.get(call.contactId) || null
+          : null,
       },
       attempts: 0,
       max_attempts: 3,
     }));
 
-    // Insert in chunks of 50 to avoid payload limits
     for (let i = 0; i < jobRows.length; i += 50) {
       const chunk = jobRows.slice(i, i + 50);
       const { data: inserted, error } = await adminSupabase
@@ -283,7 +375,14 @@ async function syncCalls(
         .select("id");
 
       if (error) {
-        console.error("[sync] Batch job insert error:", error.message);
+        // Unique constraint on ghl_conversation_id may collide when
+        // the same call is discovered for multiple configured orgs.
+        // That's acceptable noise for the multi-tenant case; log and
+        // continue.
+        console.error(
+          `[sync] [${orgId.slice(0, 8)}] Batch job insert error:`,
+          error.message
+        );
       } else {
         (inserted || []).forEach((j) => jobIds.push(j.id));
       }
@@ -298,43 +397,51 @@ async function syncCalls(
   };
 }
 
-// ── Opportunities sync (Step 6) ───────────────────────────────────
+// ── Opportunities sync for one org ────────────────────────────────
+//
+// Fetches the won opps from this org's opening pipeline, cross-matches
+// them against the closing pipeline by contact_id, and UPSERTs them
+// into live_transfers with `org_id = org.orgId`. Then DB-level cleanup
+// removes any stale rows for that org.
 async function syncOpportunities(
   ghl: GHLClient,
   adminSupabase: ReturnType<typeof createAdminClient>,
-  orgId: string,
-  closerMap: Map<string, string>,
-  configuredOpeningPipelineId: string | null,
-  configuredClosingPipelineId: string | null
+  org: OrgPipelineConfig,
+  closerMap: Map<string, string>
 ) {
-  const pipelines = await ghl.getPipelines();
-
-  // ── Resolve opening pipeline (configured ID > name fallback) ──
-  const openingPipeline = configuredOpeningPipelineId
-    ? pipelines.find((p) => p.id === configuredOpeningPipelineId)
-    : pipelines.find((p) => p.name.toLowerCase().includes("opening"));
-
-  if (!openingPipeline) {
-    const warning = configuredOpeningPipelineId
-      ? `Configured opening pipeline (id=${configuredOpeningPipelineId}) not found in GHL. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`
-      : `No pipeline matching "Opening Pipeline" found. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`;
-    console.warn(`[sync] ${warning}`);
-    return { transfersSynced: 0, warning };
+  if (!org.openingPipelineId) {
+    // Should never reach here — listConfiguredOrgPipelines filters this
+    // out — but keep a defensive check.
+    return {
+      transfersSynced: 0,
+      cleanedCount: 0,
+      warning: "No opening pipeline configured for this org",
+    };
   }
 
-  // ── Resolve closing pipeline (optional, configured ID > name fallback) ──
-  const closingPipeline = configuredClosingPipelineId
-    ? pipelines.find((p) => p.id === configuredClosingPipelineId)
-    : pipelines.find((p) => p.name.toLowerCase().includes("closing"));
+  // Fetch ALL pipelines once (cheap) to validate the configured IDs
+  // and to build the closing stage name map.
+  const pipelines = await ghl.getPipelines();
+
+  const openingPipeline = pipelines.find((p) => p.id === org.openingPipelineId);
+  if (!openingPipeline) {
+    const warning = `[${org.orgSlug}] Opening pipeline ${org.openingPipelineId} not found in GHL account. Available: ${pipelines.map((p) => p.name).join(", ") || "none"}.`;
+    console.warn(`[sync] ${warning}`);
+    return { transfersSynced: 0, cleanedCount: 0, warning };
+  }
+
+  const closingPipeline = org.closingPipelineId
+    ? pipelines.find((p) => p.id === org.closingPipelineId)
+    : null;
 
   console.log(
-    `[sync] Opening: "${openingPipeline.name}" (${openingPipeline.id})` +
+    `[sync] [${org.orgSlug}] Opening: "${openingPipeline.name}"` +
       (closingPipeline
-        ? ` | Closing: "${closingPipeline.name}" (${closingPipeline.id})`
+        ? ` | Closing: "${closingPipeline.name}"`
         : " | No closing pipeline configured")
   );
 
-  // Build a stage-id → name map for the closing pipeline (used to detect DQ Lead)
+  // Stage name map for detecting DQ leads in the closing pipeline
   const closingStageNameById = new Map<string, string>();
   if (closingPipeline) {
     for (const s of closingPipeline.stages) {
@@ -342,7 +449,7 @@ async function syncOpportunities(
     }
   }
 
-  // ── Fetch all WON opps from Opening Pipeline (paginated) ──
+  // Fetch won opps from opening pipeline
   let openingWonOpps: Awaited<
     ReturnType<typeof ghl.getAllOpportunities>
   > = [];
@@ -352,33 +459,33 @@ async function syncOpportunities(
     });
   } catch (err) {
     console.warn(
-      "[sync] Opening pipeline fetch error:",
+      `[sync] [${org.orgSlug}] Opening pipeline fetch error:`,
       err instanceof Error ? err.message : String(err)
     );
   }
 
-  // ── Fetch ALL opps from Closing Pipeline (any status) for matching ──
+  // Fetch all opps from closing pipeline for cross-match
   let closingOpps: Awaited<ReturnType<typeof ghl.getAllOpportunities>> = [];
   if (closingPipeline) {
     try {
       closingOpps = await ghl.getAllOpportunities(closingPipeline.id);
     } catch (err) {
       console.warn(
-        "[sync] Closing pipeline fetch error:",
+        `[sync] [${org.orgSlug}] Closing pipeline fetch error:`,
         err instanceof Error ? err.message : String(err)
       );
     }
   }
 
   console.log(
-    `[sync] Found ${openingWonOpps.length} won opps in opening, ${closingOpps.length} in closing`
+    `[sync] [${org.orgSlug}] Found ${openingWonOpps.length} won opps in opening, ${closingOpps.length} in closing`
   );
 
   if (openingWonOpps.length === 0) {
-    return { transfersSynced: 0, warning: null };
+    return { transfersSynced: 0, cleanedCount: 0, warning: null };
   }
 
-  // Build closing-by-contactId map for fast cross-pipeline matching
+  // Cross-match: contact_id → closing opp
   const closingByContactId = new Map<
     string,
     (typeof closingOpps)[number]
@@ -388,13 +495,7 @@ async function syncOpportunities(
     if (cid) closingByContactId.set(cid, opp);
   }
 
-  // ── Build the full set of rows to upsert ──────────────────────────
-  // Strategy: build every row from the GHL won-opps list, then UPSERT
-  // on `ghl_opportunity_id` (which is UNIQUE in the DB). This removes
-  // the need to pre-fetch existing transfers — PostgreSQL handles the
-  // insert-or-update decision atomically, which also eliminates the
-  // duplicate-key errors that appeared when the sync ran in parallel
-  // (auto-sync + manual sync, or StrictMode double-mount).
+  // Build upsert rows
   const syncedOppIds = new Set<string>();
   const rows: Record<string, unknown>[] = [];
 
@@ -405,7 +506,6 @@ async function syncOpportunities(
       : null;
     const contactId = opp.contactId ?? opp.contact?.id ?? null;
 
-    // Determine closing_status by looking up the closing pipeline opp
     const closing = contactId ? closingByContactId.get(contactId) : null;
     let closingStatus: string = "pending_to_close";
     let closingStatusChangedAt: string | undefined;
@@ -416,7 +516,6 @@ async function syncOpportunities(
       } else if (closing.status === "lost") {
         closingStatus = "closed_lost";
       } else {
-        // status is open/abandoned — check stage for DQ Lead
         const stageName = closing.pipelineStageId
           ? (closingStageNameById.get(closing.pipelineStageId) ?? "")
           : "";
@@ -426,15 +525,10 @@ async function syncOpportunities(
           closingStatus = "pending_to_close";
         }
       }
-      // Use the closing opp's status change timestamp when available — it
-      // reflects when the closer actually moved the deal forward.
       closingStatusChangedAt =
         closing.lastStatusChangeAt ?? closing.updatedAt ?? closing.createdAt;
     }
 
-    // status_change_date represents the moment the live transfer happened
-    // (when the opening opp first reached "won"), preferring the most
-    // recent reliable signal from GHL.
     const statusChangeDate =
       opp.lastStatusChangeAt ??
       closingStatusChangedAt ??
@@ -442,7 +536,7 @@ async function syncOpportunities(
       opp.createdAt;
 
     rows.push({
-      org_id: orgId,
+      org_id: org.orgId,
       closer_id: closerId,
       lead_name: opp.contact?.name || opp.name || "Unknown Lead",
       lead_phone: opp.contact?.phone || null,
@@ -450,7 +544,7 @@ async function syncOpportunities(
       business_name: opp.contact?.companyName || null,
       transfer_date: opp.lastStatusChangeAt || opp.createdAt,
       status_change_date: statusChangeDate,
-      status: "funded", // legacy column kept for back-compat
+      status: "funded",
       closing_status: closingStatus,
       amount: opp.monetaryValue || 0,
       ghl_opportunity_id: opp.id,
@@ -458,10 +552,7 @@ async function syncOpportunities(
     });
   }
 
-  // ── UPSERT in chunks ──────────────────────────────────────────────
-  // Upsert with `onConflict: 'ghl_opportunity_id'` — the UNIQUE index
-  // on that column (from 00001_initial_schema.sql + 00003_ghl_integration.sql)
-  // lets Postgres decide insert vs update per row atomically.
+  // UPSERT in chunks
   let upserted = 0;
   if (rows.length > 0) {
     for (let i = 0; i < rows.length; i += 100) {
@@ -473,54 +564,48 @@ async function syncOpportunities(
           count: "exact",
         });
       if (error) {
-        console.error("[sync] Upsert error:", error.message);
+        console.error(
+          `[sync] [${org.orgSlug}] Upsert error:`,
+          error.message
+        );
       } else {
         upserted += count ?? chunk.length;
       }
     }
   }
 
-  // ── Clean up stale rows in ONE DB-level delete (no pagination) ────
-  // Previously we fetched existing rows first, diffed them client-side,
-  // and deleted by id — but PostgREST caps row fetches at 1000 by
-  // default, so the diff was blind to any stale rows beyond that limit
-  // (we once had 12k+ orphaned rows lingering after a legacy script).
-  //
-  // This single DELETE uses `.not('ghl_opportunity_id', 'in', (...))`
-  // so Postgres removes every row in the org that doesn't correspond
-  // to a current GHL won-opp. No row-count limit.
+  // Stale cleanup — scoped to this org
   let cleanedCount = 0;
   if (syncedOppIds.size > 0) {
     const syncedList = Array.from(syncedOppIds);
-    // PostgREST encodes the IN list in the URL query string. With
-    // 200 opp-ids at ~24 chars each + overhead, this stays well under
-    // typical server URL limits. If the opening pipeline ever grows
-    // past a few thousand won-opps, split syncedList into chunks and
-    // run multiple deletes with NOT IN (chunk1) AND NOT IN (chunk2).
     const { error: delError, count } = await adminSupabase
       .from("live_transfers")
       .delete({ count: "exact" })
-      .eq("org_id", orgId)
+      .eq("org_id", org.orgId)
       .not("ghl_opportunity_id", "in", `(${syncedList.join(",")})`);
 
     if (delError) {
-      console.error("[sync] Stale cleanup error:", delError.message);
+      console.error(
+        `[sync] [${org.orgSlug}] Stale cleanup error:`,
+        delError.message
+      );
     } else {
       cleanedCount = count ?? 0;
       if (cleanedCount > 0) {
-        console.log(`[sync] Cleaned up ${cleanedCount} stale live_transfers`);
+        console.log(
+          `[sync] [${org.orgSlug}] Cleaned up ${cleanedCount} stale live_transfers`
+        );
       }
     }
   } else {
-    // No won opps came back from GHL — don't nuke the whole table.
     console.warn(
-      "[sync] Opening pipeline returned 0 won opps; skipping stale cleanup"
+      `[sync] [${org.orgSlug}] Opening pipeline returned 0 won opps; skipping stale cleanup`
     );
   }
 
   console.log(
-    `[sync] Synced ${upserted} transfers via upsert (cleaned ${cleanedCount} stale)`
+    `[sync] [${org.orgSlug}] Synced ${upserted} transfers via upsert (cleaned ${cleanedCount} stale)`
   );
 
-  return { transfersSynced: upserted, warning: null };
+  return { transfersSynced: upserted, cleanedCount, warning: null };
 }
