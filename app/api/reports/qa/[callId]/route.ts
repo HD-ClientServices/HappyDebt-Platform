@@ -90,6 +90,7 @@ export async function GET(
       : "N/A";
 
     const isV2 = rawAnalysis?.version === "v2-5-pillars-gpt4o";
+    const hasRecording = !!recording.ghl_message_id;
 
     const bodyHtml = isV2
       ? renderV2(rawAnalysis as unknown as QAAnalysisResultV2)
@@ -352,12 +353,124 @@ export async function GET(
       font-size: 13.5px;
     }
 
+    /* Audio player */
+    .audio-player-section { margin-bottom: 24px; }
+    .audio-player {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 20px 24px;
+      background: #111114;
+      border-radius: 12px;
+      border: 1px solid #27272a;
+    }
+    .audio-player audio { display: none; }
+    .ap-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+    .ap-btn {
+      background: transparent;
+      border: 1px solid #3f3f46;
+      border-radius: 10px;
+      color: #d4d4d8;
+      cursor: pointer;
+      padding: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      line-height: 0;
+    }
+    .ap-btn:hover { background: rgba(255,255,255,0.06); border-color: #52525b; }
+    .ap-btn svg { width: 18px; height: 18px; }
+    .ap-play-btn {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: #10b981;
+      border-color: transparent;
+      color: #fff;
+    }
+    .ap-play-btn:hover { background: #059669; }
+    .ap-play-btn svg { width: 22px; height: 22px; }
+    .ap-progress-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .ap-time {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      color: #71717a;
+      min-width: 40px;
+      text-align: center;
+      user-select: none;
+    }
+    .ap-slider {
+      flex: 1;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: #27272a;
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .ap-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #10b981;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 0 6px rgba(16,185,129,0.4);
+    }
+    .ap-slider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #10b981;
+      cursor: pointer;
+      border: none;
+    }
+    .ap-bottom-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .ap-speed {
+      background: #1e1e22;
+      color: #a1a1aa;
+      border: 1px solid #3f3f46;
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+    }
+    .ap-speed:hover { border-color: #52525b; color: #d4d4d8; }
+    .ap-status {
+      text-align: center;
+      font-size: 13px;
+      color: #71717a;
+      padding: 4px 0;
+    }
+    .ap-status.error { color: #ef4444; }
+    .ap-status.loading { color: #a1a1aa; }
+
     /* Print */
     @media print {
       body { background: white; color: black; padding: 16px; }
       .section, .pillar-detail { background: #f5f5f5; border-color: #ddd; }
       .critical-moment { background: #fffbeb; }
       table.scorecard th { color: #555; }
+      .audio-player-section { display: none; }
     }
   </style>
 </head>
@@ -378,6 +491,8 @@ export async function GET(
       </div>
     </div>
 
+    ${hasRecording ? renderAudioPlayer(callId) : ""}
+
     ${bodyHtml.main}
   </div>
 </body>
@@ -393,6 +508,157 @@ export async function GET(
       { status: 500 }
     );
   }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Audio player (vanilla HTML/CSS/JS for the iframe context)
+// ───────────────────────────────────────────────────────────────────
+
+/**
+ * Returns a self-contained HTML block for the call recording player.
+ * Uses Lucide-compatible SVG icons inlined so there are no external
+ * dependencies. The JS is wrapped in an IIFE to avoid polluting the
+ * global scope.
+ */
+function renderAudioPlayer(callId: string): string {
+  // Lucide SVG icons (24×24 viewBox, stroke-based)
+  const ICON_PLAY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>`;
+  const ICON_PAUSE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"></rect><rect x="6" y="4" width="4" height="16" rx="1"></rect></svg>`;
+  const ICON_SKIP_BACK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 19 2 12 11 5 11 19"></polygon><polygon points="22 19 13 12 22 5 22 19"></polygon></svg>`;
+  const ICON_SKIP_FWD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 19 22 12 13 5 13 19"></polygon><polygon points="2 19 11 12 2 5 2 19"></polygon></svg>`;
+  const ICON_VOLUME = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><path d="M16 9a5 5 0 0 1 0 6"></path><path d="M19.364 18.364a9 9 0 0 0 0-12.728"></path></svg>`;
+  const ICON_VOLUME_X = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><line x1="22" y1="9" x2="16" y2="15"></line><line x1="16" y1="9" x2="22" y2="15"></line></svg>`;
+
+  return `
+    <div class="section audio-player-section">
+      <h2>Call Recording</h2>
+      <div class="audio-player" id="audio-player">
+        <audio id="ap-audio" preload="metadata"
+               src="/api/recordings/${callId}/audio"></audio>
+
+        <div id="ap-status" class="ap-status loading">Loading recording...</div>
+
+        <div id="ap-ui" style="display:none;">
+          <!-- Controls: skip-back | play/pause | skip-forward -->
+          <div class="ap-controls">
+            <button class="ap-btn" id="ap-skip-back" title="Back 15s">${ICON_SKIP_BACK}</button>
+            <button class="ap-btn ap-play-btn" id="ap-play" title="Play">${ICON_PLAY}</button>
+            <button class="ap-btn" id="ap-skip-fwd" title="Forward 15s">${ICON_SKIP_FWD}</button>
+          </div>
+
+          <!-- Progress: current time | slider | duration -->
+          <div class="ap-progress-row">
+            <span class="ap-time" id="ap-current">0:00</span>
+            <input type="range" class="ap-slider" id="ap-seek"
+                   min="0" max="100" value="0" step="0.1" />
+            <span class="ap-time" id="ap-duration">0:00</span>
+          </div>
+
+          <!-- Bottom: speed | mute -->
+          <div class="ap-bottom-row">
+            <select class="ap-speed" id="ap-speed" title="Playback speed">
+              <option value="1">1x</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+            </select>
+            <button class="ap-btn" id="ap-mute" title="Mute">${ICON_VOLUME}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function() {
+      var audio    = document.getElementById('ap-audio');
+      var playBtn  = document.getElementById('ap-play');
+      var seek     = document.getElementById('ap-seek');
+      var curEl    = document.getElementById('ap-current');
+      var durEl    = document.getElementById('ap-duration');
+      var speedSel = document.getElementById('ap-speed');
+      var muteBtn  = document.getElementById('ap-mute');
+      var statusEl = document.getElementById('ap-status');
+      var uiEl     = document.getElementById('ap-ui');
+
+      var PLAY_SVG  = '${ICON_PLAY.replace(/'/g, "\\'")}';
+      var PAUSE_SVG = '${ICON_PAUSE.replace(/'/g, "\\'")}';
+      var VOL_SVG   = '${ICON_VOLUME.replace(/'/g, "\\'")}';
+      var VOLX_SVG  = '${ICON_VOLUME_X.replace(/'/g, "\\'")}';
+
+      function fmt(s) {
+        if (!s || !isFinite(s)) return '0:00';
+        var m = Math.floor(s / 60);
+        var sec = Math.floor(s % 60);
+        return m + ':' + (sec < 10 ? '0' : '') + sec;
+      }
+
+      audio.addEventListener('loadedmetadata', function() {
+        seek.max = audio.duration;
+        durEl.textContent = fmt(audio.duration);
+        statusEl.style.display = 'none';
+        uiEl.style.display = 'flex';
+        uiEl.style.flexDirection = 'column';
+        uiEl.style.gap = '14px';
+      });
+
+      audio.addEventListener('timeupdate', function() {
+        if (!seek._dragging) {
+          seek.value = audio.currentTime;
+          curEl.textContent = fmt(audio.currentTime);
+        }
+      });
+
+      audio.addEventListener('ended', function() {
+        playBtn.innerHTML = PLAY_SVG;
+      });
+
+      audio.addEventListener('error', function() {
+        statusEl.style.display = 'block';
+        statusEl.className = 'ap-status error';
+        statusEl.textContent = 'Unable to load recording';
+        uiEl.style.display = 'none';
+      });
+
+      playBtn.addEventListener('click', function() {
+        if (audio.paused) {
+          audio.play();
+          playBtn.innerHTML = PAUSE_SVG;
+        } else {
+          audio.pause();
+          playBtn.innerHTML = PLAY_SVG;
+        }
+      });
+
+      document.getElementById('ap-skip-back').addEventListener('click', function() {
+        audio.currentTime = Math.max(0, audio.currentTime - 15);
+      });
+
+      document.getElementById('ap-skip-fwd').addEventListener('click', function() {
+        audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 15);
+      });
+
+      seek.addEventListener('mousedown', function() { seek._dragging = true; });
+      seek.addEventListener('touchstart', function() { seek._dragging = true; });
+      seek.addEventListener('input', function() {
+        curEl.textContent = fmt(this.value);
+      });
+      seek.addEventListener('change', function() {
+        audio.currentTime = this.value;
+        seek._dragging = false;
+      });
+
+      speedSel.addEventListener('change', function() {
+        audio.playbackRate = parseFloat(this.value);
+      });
+
+      var muted = false;
+      muteBtn.addEventListener('click', function() {
+        muted = !muted;
+        audio.muted = muted;
+        muteBtn.innerHTML = muted ? VOLX_SVG : VOL_SVG;
+      });
+    })();
+    </script>`;
 }
 
 // ───────────────────────────────────────────────────────────────────
