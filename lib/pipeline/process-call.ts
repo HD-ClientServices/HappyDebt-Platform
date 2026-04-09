@@ -367,7 +367,13 @@ export async function processCall(
         : `Rep needs coaching on: ${improvementAreas.join(", ")}`
       : null;
 
-    // Update call_recording with final results
+    // Update call_recording with final results.
+    // `recording_url` is set to the authenticated proxy endpoint so the
+    // React-based CallAudioPlayer components across the platform (in
+    // CallDetailModal, DrillDownPanel, CriticalCallsPanel, etc.) show
+    // a working player. Previously this was always "" (empty), which
+    // meant every `if (call.recording_url)` guard evaluated to false
+    // and no audio player was ever shown anywhere.
     await supabase
       .from("call_recordings")
       .update({
@@ -380,6 +386,7 @@ export async function processCall(
         is_critical: isCritical,
         critical_action_plan: criticalActionPlan,
         processing_status: "completed",
+        recording_url: `/api/recordings/${recording.id}/audio`,
       })
       .eq("id", recording.id);
 

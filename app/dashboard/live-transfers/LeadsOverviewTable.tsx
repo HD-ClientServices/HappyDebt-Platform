@@ -459,7 +459,7 @@ export function LeadsOverviewTable({ dateRange, filterDate }: Props) {
                       <TableRow className="border-zinc-800 bg-zinc-900/30">
                         <TableCell colSpan={8} className="p-4">
                           <CallAudioPlayer
-                            src={call.recording_url}
+                            recordingUrl={call.recording_url}
                             callId={call.id}
                           />
                         </TableCell>

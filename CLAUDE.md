@@ -83,6 +83,16 @@ The sync is what pulls fresh data from GHL into Supabase. Flow:
 
 **Critical invariant**: the sync NEVER uses `effectiveOrgId` to decide which org owns a row. Ownership is derived from the opp's pipeline_id at scrape time. Using `effectiveOrgId` was the bug behind the 00016 refactor — don't reintroduce it.
 
+### Call selection + recording download
+
+Two invariants in `lib/ghl/client.ts` that MUST be maintained:
+
+1. **Longest-call-first selection** — `findCompletedCallMessage()` and `discoverRecentCalls()` both collect ALL completed calls for a contact/conversation and sort by `duration DESC` (null duration treated as Infinity — per `docs/skills/ghl-call-recordings/references/recording-api.md`). In a setter→closer live transfer, the setter's leg is 1-7 seconds and the closer's is 10-30+ minutes; picking the longest consistently returns the closer's call for QA analysis. **Never use `.find()` to grab the first completed call** — that was the bug that caused the platform to analyze setter legs instead of closer legs.
+
+2. **Closer-first recording download** — `downloadRecording(messageId)` tries `?index=1` first (closer's recording in a live transfer), falls back to no index (default/setter-only). This is documented in `recording-api.md` as the "two-step download strategy". **Never download without trying index=1 first** — that returns the setter's recording for every live-transferred call.
+
+The `getCallDuration(msg)` helper extracts duration from `meta.call.duration` or the top-level `duration` field, returning Infinity if neither exists.
+
 ### Closer lookup (`contact.closer` custom field)
 
 **Don't use `opp.assignedTo` for "who closed this deal".** That's the GHL user assigned to the opportunity in the CRM (typically the setter or account owner). The actual closer name lives in a custom field on the **contact**, not the opportunity.
@@ -149,6 +159,12 @@ Per-call webhook from GHL when a call-completed event fires:
 - QA analysis: **GPT-4o** with a 5-pillar prompt replicated 1:1 from the production n8n workflow. See `lib/openai/client.ts` → `QA_SYSTEM_PROMPT_V2` (~15k chars, do not modify without reviewing the n8n source).
 - Output schema: `QAAnalysisResultV2` in `lib/openai/types.ts`. Stored in `call_recordings.ai_analysis` as JSONB. Mapped to legacy `evaluation_score` (0-100 scale) so existing dashboard thresholds keep working.
 - `lib/anthropic/client.ts` — legacy Claude analyzer, marked `@deprecated`. No code path imports from it.
+
+### Call recording playback
+
+- **Proxy endpoint**: `GET /api/recordings/[callId]/audio` — authenticated proxy that fetches the recording from GHL's servers (`GHLClient.downloadRecording(messageId)`) and returns the raw audio with `Content-Type: audio/mpeg`. Required because GHL's recording endpoint needs a Bearer token that the browser can't send from `<audio src="…">`. Response is buffered (not streamed) to set `Content-Length` for seeking. Cached with `Cache-Control: private, max-age=3600, immutable`.
+- **`recording_url`** on `call_recordings` — set to `/api/recordings/{id}/audio` in the final update of `processCall()` (migration 00018 backfilled existing rows). This enables the React `CallAudioPlayer` component across the entire platform (CallDetailModal, DrillDownPanel, CriticalCallsPanel, LeadsOverviewTable, CloserDetail), which gate on `if (call.recording_url)`. Before this, `recording_url` was always `""` (empty) and no audio player worked anywhere.
+- **QA report player** — the HTML report at `/api/reports/qa/[callId]` embeds a vanilla HTML/CSS/JS audio player (not React — the report renders in an iframe as server-side HTML). It appears between the header and the scorecard, gated on `!!recording.ghl_message_id`. The player has play/pause, ±15s skip, progress seek, speed selector (1x–2x), and mute.
 
 ### Cron / daily maintenance
 
@@ -232,6 +248,8 @@ Applied in order:
 | 00014 | `00014_fix_is_intro_admin_body.sql` | Rewrites the `is_intro_admin()` function body to compare against `'intro_admin'` (not the stale `'happydebt_admin'` literal). This was the root cause of the silent RLS bypass bug. |
 | 00015 | `00015_unify_ghl_integration.sql` | Creates singleton `public.ghl_integration`. Collapsed GHL credentials + (originally) pipeline IDs into a single row. DROPs the `ghl_*` columns from `organizations`. |
 | 00016 | `00016_pipelines_per_org.sql` | Re-adds `ghl_opening_pipeline_id` / `ghl_closing_pipeline_id` to `organizations` (00015 was wrong to put them in the singleton). Backfills Rise from the singleton. Moves orphaned `live_transfers` rows from Intro → Rise. Adds partial indexes on the new columns. |
+| 00017 | `00017_closing_opp_id.sql` | Adds `ghl_closing_opportunity_id` to `live_transfers` + partial index. Populated during sync; used by the closing-status edit endpoint to PUT directly to GHL. |
+| 00018 | `00018_backfill_recording_urls.sql` | Backfills `recording_url` on all `call_recordings` rows that have a `ghl_message_id` to the proxy path `/api/recordings/{id}/audio`. Enables the `CallAudioPlayer` React component platform-wide. |
 
 When writing a new migration: make the UPDATE / DROP statements **idempotent** so re-running is safe (see `00013`'s `DO $$ ... END $$` column-exists guard as the pattern).
 

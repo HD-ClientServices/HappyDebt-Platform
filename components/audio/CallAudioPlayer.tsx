@@ -6,8 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   Play,
   Pause,
-  SkipBack,
-  SkipForward,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -115,36 +113,18 @@ export function CallAudioPlayer({
       )}
     >
       <audio ref={audioRef} src={recordingUrl} preload="metadata" />
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => skip(-15)}
-        >
-          <SkipBack className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9"
-          onClick={togglePlay}
-        >
-          {playing ? (
-            <Pause className="h-4 w-4" />
-          ) : (
-            <Play className="h-4 w-4 ml-0.5" />
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => skip(15)}
-        >
-          <SkipForward className="h-4 w-4" />
-        </Button>
-      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-9 w-9"
+        onClick={togglePlay}
+      >
+        {playing ? (
+          <Pause className="h-4 w-4" />
+        ) : (
+          <Play className="h-4 w-4 ml-0.5" />
+        )}
+      </Button>
       <div className="flex-1 min-w-0 flex items-center gap-2">
         <span className="text-xs tabular-nums text-muted-foreground w-9">
           {formatTime(currentTime)}
