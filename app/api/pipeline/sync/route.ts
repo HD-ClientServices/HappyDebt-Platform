@@ -25,6 +25,11 @@
  * is intentional: regular users need a way to refresh their own Live
  * Transfers dashboard, and admins need a way to refresh every tenant
  * at once. Both hit the same endpoint.
+ *
+ * The daily Vercel cron at `/api/cron/process-pending` also calls this
+ * endpoint (with `Authorization: Bearer $CRON_SECRET`) before it
+ * retries any stuck processing jobs, so the dashboard stays fresh
+ * without requiring an admin to manually click Refresh every day.
  */
 
 import { NextResponse } from "next/server";
@@ -56,10 +61,20 @@ interface OrgSyncResult {
 export async function POST(request: Request) {
   const t0 = Date.now();
   try {
-    // ── Auth: any authenticated user can trigger a sync ──────────
-    const ctx = await getEffectiveOrgId(request);
-    if (!ctx.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // ── Auth: authenticated user OR the Vercel cron ──────────────
+    //
+    // The user-facing Refresh button in LiveTransfersPage calls this
+    // with a normal session. The daily cron calls it with the shared
+    // CRON_SECRET — no user session available there. We accept either.
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = request.headers.get("authorization");
+    const isCron = !!cronSecret && authHeader === `Bearer ${cronSecret}`;
+
+    if (!isCron) {
+      const ctx = await getEffectiveOrgId(request);
+      if (!ctx.userId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
     }
 
     const adminSupabase = createAdminClient();

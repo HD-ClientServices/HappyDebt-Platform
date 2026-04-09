@@ -1,26 +1,33 @@
 /**
- * Cron Job — daily safety net that retries pending / failed processing
- * jobs.
+ * Cron Job — daily maintenance: (1) refresh from GHL, then (2) retry
+ * any pending / failed processing jobs.
  *
  * ## Schedule
  *
  * Runs daily at 04:17 UTC. Vercel Hobby only allows daily crons, and
- * this job is a safety net — not the main processing path — so one
- * run per day is plenty. The 17-minute offset keeps us off the
- * every-minute edge where the entire Vercel fleet piles up.
+ * everything the platform needs to do automatically happens inside
+ * this single run. The 17-minute offset keeps us off the every-minute
+ * edge where the entire Vercel fleet piles up.
  *
- * ## Why this exists
+ * ## What it does
  *
- * Calls are processed inline from two places:
- *   1. `/api/webhooks/ghl-call` — fires a fetch to `/api/pipeline/process`
- *      immediately after queueing the job.
- *   2. `/api/pipeline/sync` — same fire-and-forget after batch-inserting
- *      jobs.
+ * 1. **Sync from GHL** — fires an internal POST to `/api/pipeline/sync`
+ *    with the `CRON_SECRET` as Bearer auth. That pulls fresh
+ *    opportunities from every configured org's opening + closing
+ *    pipelines and upserts them into `live_transfers`. Without this
+ *    step the dashboard would only refresh when a user clicked the
+ *    Refresh button. Running this first means the dashboard is always
+ *    current for the next morning.
  *
- * If either of those inline triggers fails (network flake, cold start
- * timeout, pipeline worker crash) the job stays in `pending` with
- * `attempts = 0`. This cron finds those orphans and retries them
- * (`attempts` capped at 3). In practice it catches ~1% of jobs.
+ * 2. **Retry stuck jobs** — finds any `processing_jobs` still in
+ *    `pending` or `failed` (with < 3 attempts) and re-runs them
+ *    through `processCall()`. This is the safety net for calls whose
+ *    inline trigger failed from either:
+ *      - `/api/webhooks/ghl-call` — fires a fetch to `/api/pipeline/process`
+ *        immediately after queueing the job.
+ *      - `/api/pipeline/sync` — same fire-and-forget after
+ *        batch-inserting jobs (including the step-1 sync above).
+ *    In practice step 2 catches ~1% of jobs.
  *
  * ## GHL credentials
  *
@@ -70,6 +77,45 @@ export async function GET(req: NextRequest) {
       throw err;
     }
 
+    // ── Step 1: Run a full GHL → Supabase sync ──────────────────
+    //
+    // We fire an internal POST to `/api/pipeline/sync` with the same
+    // CRON_SECRET we authenticated with. The sync route has a cron
+    // bypass that accepts this header in lieu of a user session.
+    //
+    // Failures here are LOGGED but not fatal — we still want to run
+    // step 2 so stuck jobs from the previous day don't get delayed
+    // another 24 hours by a transient GHL hiccup.
+    let syncSummary: string | null = null;
+    let syncError: string | null = null;
+    try {
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+      const syncRes = await fetch(`${baseUrl}/api/pipeline/sync`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cronSecret ?? ""}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (syncRes.ok) {
+        const body = (await syncRes.json()) as { message?: string };
+        syncSummary = body.message ?? "Sync completed";
+        console.log(`[cron] sync → ${syncSummary}`);
+      } else {
+        syncError = `sync returned ${syncRes.status}: ${await syncRes
+          .text()
+          .catch(() => "<unreadable body>")}`;
+        console.warn(`[cron] ${syncError}`);
+      }
+    } catch (err) {
+      syncError = err instanceof Error ? err.message : String(err);
+      console.warn(`[cron] sync fetch threw: ${syncError}`);
+    }
+
     // ── Find pending or retryable failed jobs ───────────────────
     const { data: jobs } = await supabase
       .from("processing_jobs")
@@ -79,7 +125,12 @@ export async function GET(req: NextRequest) {
       .limit(3);
 
     if (!jobs || jobs.length === 0) {
-      return NextResponse.json({ message: "No pending jobs", processed: 0 });
+      return NextResponse.json({
+        message: "No pending jobs",
+        processed: 0,
+        sync: syncSummary,
+        sync_error: syncError,
+      });
     }
 
     let processed = 0;
@@ -125,7 +176,13 @@ export async function GET(req: NextRequest) {
       `[cron] Processed ${processed}/${jobs.length} job(s) at ${new Date().toISOString()}`
     );
 
-    return NextResponse.json({ processed, total: jobs.length, results });
+    return NextResponse.json({
+      processed,
+      total: jobs.length,
+      results,
+      sync: syncSummary,
+      sync_error: syncError,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[cron] Error:", message);

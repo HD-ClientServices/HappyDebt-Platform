@@ -31,7 +31,7 @@ export default function LiveTransfersPage() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="font-heading text-2xl font-semibold">Live Transfers</h1>
         <div className="flex items-center gap-2">
-          <RefreshFromGhlButton autoSyncOnMount />
+          <RefreshFromGhlButton />
           <DateRangePicker
             dateRange={dateRange}
             onDateRangeChange={setDateRange}

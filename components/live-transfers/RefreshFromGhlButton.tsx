@@ -1,41 +1,36 @@
 "use client";
 
-import { useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
 import { RefreshCw, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-client";
-
-interface Props {
-  /** When true, automatically triggers a sync on first mount (background). */
-  autoSyncOnMount?: boolean;
-}
+import { cn } from "@/lib/utils";
 
 /**
- * Module-level guard that survives React StrictMode double-mount in dev
- * and any same-session remount (e.g. navigating away and back to the
- * Live Transfers page within the same tab).
+ * Refresh-from-GHL button that triggers `/api/pipeline/sync`, which
+ * pulls fresh opportunities from the opening + closing pipelines and
+ * updates the `live_transfers` table. After success it invalidates
+ * every `live-transfers*` React Query key so the KPIs, chart, and
+ * table all refetch with the new data.
  *
- * A previous version used a `useRef` to track the auto-sync, but refs
- * are per-component-instance — StrictMode mounts, unmounts, and remounts
- * the component synchronously, creating a second instance whose ref
- * starts fresh. The result was two parallel POSTs to /api/pipeline/sync,
- * which then collided on the `live_transfers_ghl_opportunity_id_key`
- * unique constraint and surfaced as duplicate-key errors in the logs.
+ * The sync runs ONLY when:
+ *   1. A user clicks this button, or
+ *   2. The daily Vercel cron at 04:17 UTC fires
+ *      `/api/cron/process-pending`, which kicks off an internal sync
+ *      before retrying any stuck processing jobs.
  *
- * Keeping this flag at module scope (not inside the component) means
- * the second StrictMode instance sees `true` and skips the call. Manual
- * clicks still work — they don't touch this flag.
+ * Earlier versions of this component auto-synced on mount as a
+ * convenience so the page was always fresh when an admin opened it.
+ * That caused the button to display "Syncing…" every time the page
+ * loaded and effectively double-triggered the sync from the cron
+ * cadence. Auto-sync was removed — the daily cron is enough to keep
+ * the dashboard fresh without firing a sync on every page load.
+ *
+ * Styling note: this button mirrors the DateRangePicker trigger
+ * (`rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm`)
+ * so the two controls align on the same horizontal row without one
+ * looking visually shorter than the other.
  */
-let hasAutoSynced = false;
-
-/**
- * Refresh-from-GHL button that triggers /api/pipeline/sync, which pulls
- * fresh opportunities from the opening + closing pipelines and updates
- * the live_transfers table. After success, invalidates all live-transfers
- * React Query keys so the UI refetches with the new data.
- */
-export function RefreshFromGhlButton({ autoSyncOnMount = true }: Props) {
+export function RefreshFromGhlButton() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
@@ -48,7 +43,8 @@ export function RefreshFromGhlButton({ autoSyncOnMount = true }: Props) {
       return res.json();
     },
     onSuccess: () => {
-      // Invalidate all live-transfers queries so KPIs/chart/table refetch
+      // Invalidate every live-transfers query so KPIs / chart / table
+      // all refetch with the newly-synced rows.
       queryClient.invalidateQueries({
         predicate: (q) => {
           const key = String(q.queryKey[0] ?? "");
@@ -58,37 +54,22 @@ export function RefreshFromGhlButton({ autoSyncOnMount = true }: Props) {
     },
   });
 
-  // Auto-sync on first mount (background, non-blocking) so the page is
-  // always fresh when an admin opens it. The module-level flag above
-  // ensures we don't fire twice under StrictMode or on remounts.
-  useEffect(() => {
-    if (autoSyncOnMount && !hasAutoSynced) {
-      hasAutoSynced = true;
-      mutation.mutate();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSyncOnMount]);
-
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="border-zinc-700"
+    <button
+      type="button"
       onClick={() => mutation.mutate()}
       disabled={mutation.isPending}
       title="Refresh data from Go High Level"
+      className={cn(
+        "inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 hover:border-zinc-600 disabled:pointer-events-none disabled:opacity-60"
+      )}
     >
       {mutation.isPending ? (
-        <>
-          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-          Syncing…
-        </>
+        <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />
       ) : (
-        <>
-          <RefreshCw className="mr-2 h-3.5 w-3.5" />
-          Refresh from GHL
-        </>
+        <RefreshCw className="h-4 w-4 text-zinc-500" />
       )}
-    </Button>
+      Refresh
+    </button>
   );
 }

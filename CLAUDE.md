@@ -150,11 +150,14 @@ Per-call webhook from GHL when a call-completed event fires:
 - Output schema: `QAAnalysisResultV2` in `lib/openai/types.ts`. Stored in `call_recordings.ai_analysis` as JSONB. Mapped to legacy `evaluation_score` (0-100 scale) so existing dashboard thresholds keep working.
 - `lib/anthropic/client.ts` — legacy Claude analyzer, marked `@deprecated`. No code path imports from it.
 
-### Cron / safety-net
+### Cron / daily maintenance
 
 - One cron in `vercel.json`: `17 4 * * *` → daily at 04:17 UTC. Hits `/api/cron/process-pending`.
-- Vercel **Hobby tier only allows one daily cron** — do NOT add more or change to sub-daily. If you need more retries, trigger inline from webhook/sync instead.
-- The cron is pure retry for jobs stuck in `pending` after an inline-trigger failure. 99% of jobs complete before it runs.
+- Vercel **Hobby tier only allows one daily cron** — do NOT add more or change to sub-daily. Everything the platform needs to do automatically happens inside this single run.
+- The cron does **two** things, in order:
+  1. **Sync from GHL** — fires an internal POST to `/api/pipeline/sync` with `Authorization: Bearer $CRON_SECRET`. The sync route accepts the cron secret as an alternate auth path (no user session needed). This pulls fresh opportunities from every configured org's opening + closing pipelines and upserts them into `live_transfers`, so the dashboard is always current for the next morning without requiring an admin to click Refresh.
+  2. **Retry stuck jobs** — finds any `processing_jobs` in `pending` or `failed` (with `attempts < 3`) and re-runs them through `processCall()`. This is the safety net for calls whose inline trigger failed. 99% of jobs complete before it runs.
+- The Refresh button in `LiveTransfersPage` (`components/live-transfers/RefreshFromGhlButton.tsx`) is the **only** other way to trigger a sync. It no longer auto-runs on mount — the daily cron is enough to keep the dashboard fresh.
 
 ---
 
