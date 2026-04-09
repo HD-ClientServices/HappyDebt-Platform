@@ -87,22 +87,50 @@ export class GHLClient {
     throw new Error(`GHL API Error: exhausted ${MAX_ATTEMPTS} retries on ${endpoint}`);
   }
 
-  /** Download recording as binary buffer */
+  /**
+   * Download recording as binary buffer using the closer-first strategy.
+   *
+   * For live-transferred calls, GHL stores two recordings per message:
+   *   - index=0 (default): setter's leg (1-3 min, the handoff)
+   *   - index=1: closer's leg (10-30+ min, the real conversation)
+   *
+   * We try index=1 first. If it returns 422 ("no recording at that
+   * index"), the call was a simple one (no transfer) and we fall back
+   * to the default recording. This pattern is documented in
+   * `docs/skills/ghl-call-recordings/references/recording-api.md`.
+   */
   async downloadRecording(messageId: string): Promise<ArrayBuffer> {
-    const url = `${GHL_BASE_URL}/conversations/messages/${messageId}/locations/${this.locationId}/recording`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Version: "2021-07-28",
-        Accept: "*/*",
-      },
-    });
+    const baseUrl = `${GHL_BASE_URL}/conversations/messages/${messageId}/locations/${this.locationId}/recording`;
+    const headers = {
+      Authorization: `Bearer ${this.token}`,
+      Version: "2021-07-28",
+      Accept: "*/*",
+    };
 
+    // Step 1: Try index=1 (closer's recording in a live transfer)
+    try {
+      const closerRes = await fetch(`${baseUrl}?index=1`, { headers });
+      if (closerRes.ok) {
+        console.log(
+          `[GHL] Downloaded closer recording (index=1) for message ${messageId}`
+        );
+        return closerRes.arrayBuffer();
+      }
+      // 422 = no recording at index 1 → fall through to default
+    } catch {
+      // Network error on index=1 attempt → fall through
+    }
+
+    // Step 2: Fall back to default recording (index=0, simple call or setter-only)
+    const res = await fetch(baseUrl, { headers });
     if (!res.ok) {
       const errorText = await res.text();
       throw new Error(`GHL Recording Download Error ${res.status}: ${errorText}`);
     }
 
+    console.log(
+      `[GHL] Downloaded default recording (index=0) for message ${messageId}`
+    );
     return res.arrayBuffer();
   }
 
@@ -152,7 +180,19 @@ export class GHLClient {
     );
   }
 
-  /** Find the completed call message from a conversation */
+  /**
+   * Find the best completed call message for a contact.
+   *
+   * Collects ALL completed calls across all of the contact's
+   * conversations and picks the **longest** one (duration desc, null
+   * treated as Infinity — per the algorithm documented in
+   * `docs/skills/ghl-call-recordings/references/recording-api.md`).
+   *
+   * In a setter→closer live transfer scenario, a conversation will
+   * contain a short setter call (1-7s) and a long closer call (10-30+
+   * min). Picking the longest consistently returns the closer's call,
+   * which is the one we want for QA analysis.
+   */
   async findCompletedCallMessage(
     contactId: string
   ): Promise<{ message: GHLMessage; conversationId: string } | null> {
@@ -161,20 +201,34 @@ export class GHLClient {
       return null;
     }
 
+    const allCalls: { message: GHLMessage; conversationId: string }[] = [];
+
     for (const conv of convData.conversations) {
       const msgData = await this.getMessages(conv.id);
       const messages = msgData.messages?.messages || msgData.messages || [];
 
-      const callMsg = (messages as GHLMessage[]).find(
-        (m) => m.messageType === "TYPE_CALL" && m.status === "completed"
-      );
-
-      if (callMsg) {
-        return { message: callMsg, conversationId: conv.id };
+      for (const msg of messages as GHLMessage[]) {
+        if (msg.messageType === "TYPE_CALL" && msg.status === "completed") {
+          allCalls.push({ message: msg, conversationId: conv.id });
+        }
       }
     }
 
-    return null;
+    if (allCalls.length === 0) return null;
+
+    // Sort: longest first. Null duration → Infinity (often the most
+    // important call — see recording-api.md "The duration: null problem").
+    allCalls.sort((a, b) => {
+      const durA = getCallDuration(a.message);
+      const durB = getCallDuration(b.message);
+      if (durB !== durA) return durB - durA;
+      // Tiebreaker: newest first
+      return (b.message.dateAdded || "").localeCompare(
+        a.message.dateAdded || ""
+      );
+    });
+
+    return allCalls[0];
   }
 
   /** Get GHL users (for closer sync) */
@@ -355,26 +409,42 @@ export class GHLClient {
           const msgData = await this.getMessages(conv.id, 20);
           const messages = msgData.messages?.messages || msgData.messages || [];
 
-          for (const msg of messages as GHLMessage[]) {
-            if (msg.messageType === "TYPE_CALL" && msg.status === "completed") {
-              // Get contact info from the conversation or fetch it
-              const contactName =
-                conv.fullName || conv.contactName || "Unknown";
-              const contactPhone = conv.phone || "";
+          // Collect all completed calls in this conversation, then
+          // pick only the LONGEST one. In a setter→closer scenario
+          // there are 2+ calls per conversation — the setter's (1-7s)
+          // and the closer's (10-30+ min). The old code pushed every
+          // call, so the setter's job could be processed first and the
+          // closer's would be discarded as "duplicate_conversation".
+          const completedCalls = (messages as GHLMessage[]).filter(
+            (m) => m.messageType === "TYPE_CALL" && m.status === "completed"
+          );
 
-              discovered.push({
-                messageId: msg.id,
-                conversationId: conv.id,
-                contactId: conv.contactId,
-                contactName,
-                contactPhone,
-                direction: msg.direction || "inbound",
-                callDate: msg.dateAdded,
-                duration: msg.duration || 0,
-                assignedUser: undefined,
-              });
-            }
-          }
+          if (completedCalls.length === 0) continue;
+
+          // Sort: longest first (null duration = Infinity)
+          completedCalls.sort((a, b) => {
+            const durA = getCallDuration(a);
+            const durB = getCallDuration(b);
+            if (durB !== durA) return durB - durA;
+            return (b.dateAdded || "").localeCompare(a.dateAdded || "");
+          });
+
+          const best = completedCalls[0];
+          const contactName =
+            conv.fullName || conv.contactName || "Unknown";
+          const contactPhone = conv.phone || "";
+
+          discovered.push({
+            messageId: best.id,
+            conversationId: conv.id,
+            contactId: conv.contactId,
+            contactName,
+            contactPhone,
+            direction: best.direction || "inbound",
+            callDate: best.dateAdded,
+            duration: getCallDuration(best),
+            assignedUser: undefined,
+          });
         } catch (err) {
           // Skip conversations that fail (deleted contacts, etc.)
           console.warn(
@@ -390,4 +460,29 @@ export class GHLClient {
 
     return discovered;
   }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Extract the call duration from a GHL message, treating null/missing
+ * as Infinity. The GHL API sometimes fails to populate
+ * `meta.call.duration` for completed calls — especially live-transferred
+ * or very long ones. Per the skill doc, null-duration calls are often
+ * the LONGEST and most important, so we treat them as highest priority.
+ *
+ * Checks both `meta.call.duration` (nested in the response JSON) and
+ * the top-level `duration` field (used by `discoverRecentCalls`).
+ */
+function getCallDuration(msg: GHLMessage): number {
+  // meta.call.duration is the canonical location in the GHL response
+  const metaDur = (msg.meta as { call?: { duration?: number } } | undefined)
+    ?.call?.duration;
+  if (typeof metaDur === "number") return metaDur;
+
+  // Some code paths populate `msg.duration` directly
+  if (typeof msg.duration === "number" && msg.duration > 0) return msg.duration;
+
+  // Null/missing → treat as Infinity so it sorts first
+  return Infinity;
 }

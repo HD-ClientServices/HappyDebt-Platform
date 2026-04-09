@@ -83,6 +83,16 @@ The sync is what pulls fresh data from GHL into Supabase. Flow:
 
 **Critical invariant**: the sync NEVER uses `effectiveOrgId` to decide which org owns a row. Ownership is derived from the opp's pipeline_id at scrape time. Using `effectiveOrgId` was the bug behind the 00016 refactor — don't reintroduce it.
 
+### Call selection + recording download
+
+Two invariants in `lib/ghl/client.ts` that MUST be maintained:
+
+1. **Longest-call-first selection** — `findCompletedCallMessage()` and `discoverRecentCalls()` both collect ALL completed calls for a contact/conversation and sort by `duration DESC` (null duration treated as Infinity — per `docs/skills/ghl-call-recordings/references/recording-api.md`). In a setter→closer live transfer, the setter's leg is 1-7 seconds and the closer's is 10-30+ minutes; picking the longest consistently returns the closer's call for QA analysis. **Never use `.find()` to grab the first completed call** — that was the bug that caused the platform to analyze setter legs instead of closer legs.
+
+2. **Closer-first recording download** — `downloadRecording(messageId)` tries `?index=1` first (closer's recording in a live transfer), falls back to no index (default/setter-only). This is documented in `recording-api.md` as the "two-step download strategy". **Never download without trying index=1 first** — that returns the setter's recording for every live-transferred call.
+
+The `getCallDuration(msg)` helper extracts duration from `meta.call.duration` or the top-level `duration` field, returning Infinity if neither exists.
+
 ### Closer lookup (`contact.closer` custom field)
 
 **Don't use `opp.assignedTo` for "who closed this deal".** That's the GHL user assigned to the opportunity in the CRM (typically the setter or account owner). The actual closer name lives in a custom field on the **contact**, not the opportunity.
