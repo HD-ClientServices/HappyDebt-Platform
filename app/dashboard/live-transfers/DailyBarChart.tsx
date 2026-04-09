@@ -101,12 +101,22 @@ export function DailyBarChart({ dateRange, selectedDate, onSelectDate }: Props) 
           <YAxis stroke="#71717a" tick={{ fill: "#a1a1aa", fontSize: 12 }} />
           <Tooltip
             cursor={{ fill: "rgba(255,255,255,0.04)" }}
-            contentStyle={{
-              backgroundColor: "#27272a",
-              border: "1px solid #3f3f46",
-              borderRadius: "0.5rem",
+            // Custom content so we can (a) hide the date label — it's
+            // already on the X axis and duplicates visual noise, and
+            // (b) control the text color directly instead of relying
+            // on Recharts' default dark itemStyle which rendered as
+            // near-black text on our already-dark tooltip background.
+            content={({ active, payload }) => {
+              if (!active || !payload || payload.length === 0) return null;
+              const value = payload[0]?.value ?? 0;
+              return (
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 shadow-xl shadow-black/50">
+                  <p className="text-sm text-white">
+                    Count: <span className="font-semibold">{value}</span>
+                  </p>
+                </div>
+              );
             }}
-            labelFormatter={(v) => (v === "—" ? v : v)}
           />
           <Bar
             dataKey="count"
