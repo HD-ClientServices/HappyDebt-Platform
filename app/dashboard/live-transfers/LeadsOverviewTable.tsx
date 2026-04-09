@@ -26,6 +26,7 @@ import { useCurrentUserOrg } from "@/hooks/useCurrentUserOrg";
 import { QAReportModal } from "@/components/live-transfers/QAReportModal";
 import { ReconnectButton } from "@/components/live-transfers/ReconnectButton";
 import { FeedbackModal } from "@/components/live-transfers/FeedbackModal";
+import { formatUSD } from "@/lib/utils/format-currency";
 
 const statusLabels: Record<string, string> = {
   pending_to_close: "Pending to Close",
@@ -268,12 +269,7 @@ export function LeadsOverviewTable({ dateRange, filterDate }: Props) {
                         )}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
-                        {row.amount != null
-                          ? new Intl.NumberFormat("en-US", {
-                              style: "currency",
-                              currency: "USD",
-                            }).format(Number(row.amount))
-                          : "—"}
+                        {formatUSD(row.amount)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">

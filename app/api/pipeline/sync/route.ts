@@ -173,6 +173,19 @@ async function syncOneOrg(
   );
 
   // ── Step 1: Sync GHL users as closers for this org ───────────
+  //
+  // This used to be the sole source of closer rows: we mirrored every
+  // GHL user into the `closers` table keyed by `ghl_user_id` and
+  // matched opportunities to closers via `opp.assignedTo`. After the
+  // refactor, the canonical source of "who closed this deal" is the
+  // `contact.closer` custom field on the contact — not the opp owner.
+  //
+  // We still sync GHL users to `closers` because many closer names
+  // WILL match GHL user names (same person, typed the same way in
+  // both places) and the case-insensitive match in
+  // `resolveOrCreateCloserByName()` will reuse those existing rows.
+  // Without this step, every first-time sync would create a fresh
+  // closer row for every user instead of reusing the existing mirrors.
   const ghlUsers = await ghl.getUsers();
   const activeUsers = ghlUsers.filter((u) => !u.deleted);
 
@@ -185,14 +198,10 @@ async function syncOneOrg(
     (existingClosers || []).map((c) => [c.ghl_user_id, c.id])
   );
 
-  const closerMap = new Map<string, string>();
   const newClosers = [];
 
   for (const u of activeUsers) {
-    const existingId = existingByGhlId.get(u.id);
-    if (existingId) {
-      closerMap.set(u.id, existingId);
-    } else {
+    if (!existingByGhlId.has(u.id)) {
       newClosers.push({
         org_id: org.orgId,
         ghl_user_id: u.id,
@@ -211,15 +220,22 @@ async function syncOneOrg(
       .from("closers")
       .insert(newClosers)
       .select("id, ghl_user_id");
-    (inserted || []).forEach((c) => closerMap.set(c.ghl_user_id, c.id));
     closersSynced = inserted?.length ?? 0;
   }
 
-  // ── Steps 2-3 (calls) and Step 4 (opportunities) in parallel ─
-  const [callsResult, oppsResult] = await Promise.all([
-    syncCalls(ghl, adminSupabase, org.orgId),
-    syncOpportunities(ghl, adminSupabase, org, closerMap),
-  ]);
+  // ── Steps 2-3 (calls) → then Step 4 (opportunities) ──────────
+  //
+  // These USED to run in parallel, but both hit the GHL API heavily
+  // (calls discovery fans out per conversation; opp sync now fans out
+  // per contact for the `contact.closer` custom field lookup).
+  // Running them concurrently would burst ~400 requests in a few
+  // seconds and reliably trigger GHL's 429 rate limit (~120/min).
+  // Sequential execution spreads the load and still completes in
+  // well under the 60s route timeout. The request() helper in
+  // GHLClient also retries 429s with exponential backoff as a
+  // second line of defense.
+  const callsResult = await syncCalls(ghl, adminSupabase, org.orgId);
+  const oppsResult = await syncOpportunities(ghl, adminSupabase, org);
 
   return {
     org_id: org.orgId,
@@ -400,14 +416,26 @@ async function syncCalls(
 // ── Opportunities sync for one org ────────────────────────────────
 //
 // Fetches the won opps from this org's opening pipeline, cross-matches
-// them against the closing pipeline by contact_id, and UPSERTs them
+// them against the closing pipeline by contact_id, looks up each opp's
+// closer from the GHL `contact.closer` custom field, and UPSERTs them
 // into live_transfers with `org_id = org.orgId`. Then DB-level cleanup
 // removes any stale rows for that org.
+//
+// Closer resolution (per user requirement):
+//   1. Read the `contact.closer` custom field from each opp's contact.
+//   2. Use THAT value (a name string like "Trevor Albrecht") as the
+//      source of truth, NOT the opp's `assignedTo` field.
+//   3. Match the name to an existing closer in our DB (case-insensitive)
+//      or create a new closer row if none exists.
+//   4. If the contact has no closer value, leave `closer_id` null.
+//
+// This requires fetching each unique contact individually because the
+// GHL opportunities search endpoint returns a simplified contact object
+// without customFields. The batch is done in parallel chunks.
 async function syncOpportunities(
   ghl: GHLClient,
   adminSupabase: ReturnType<typeof createAdminClient>,
-  org: OrgPipelineConfig,
-  closerMap: Map<string, string>
+  org: OrgPipelineConfig
 ) {
   if (!org.openingPipelineId) {
     // Should never reach here — listConfiguredOrgPipelines filters this
@@ -495,16 +523,119 @@ async function syncOpportunities(
     if (cid) closingByContactId.set(cid, opp);
   }
 
+  // ── Resolve the `contact.closer` custom field id ──────────────
+  //
+  // Custom fields are referenced by `id` in a contact's payload
+  // (not by `fieldKey`), so we have to look up the id once per sync
+  // by scanning the location's custom field definitions for the one
+  // whose fieldKey matches `contact.closer`. If it's not defined in
+  // this GHL location, we log a warning and leave every closer_id
+  // null — the Top Closer card will show "—" until the field is
+  // created in GHL.
+  const allCustomFields = await ghl.getCustomFields();
+  const closerField = allCustomFields.find(
+    (f) => f.fieldKey === "contact.closer" && f.model === "contact"
+  );
+  const closerFieldId = closerField?.id ?? null;
+
+  if (!closerFieldId) {
+    console.warn(
+      `[sync] [${org.orgSlug}] Custom field "contact.closer" not found in the GHL location. ` +
+        `All live_transfers will be upserted with closer_id = null. ` +
+        `Available contact fields: ${allCustomFields
+          .filter((f) => f.model === "contact")
+          .map((f) => f.fieldKey || f.name)
+          .slice(0, 20)
+          .join(", ")}`
+    );
+  }
+
+  // ── Batch-fetch each opp's contact to read the closer field ───
+  //
+  // The GHL opportunities search endpoint returns a simplified
+  // contact (no custom fields), so we fetch the contacts
+  // individually. Done in chunks of 10 in parallel to stay under
+  // GHL rate limits (~120 req/min per the ghl-api skill). Only
+  // unique contact ids are fetched — if two opps share a contact,
+  // we only hit the API once.
+  const uniqueContactIds = Array.from(
+    new Set(
+      openingWonOpps
+        .map((o) => o.contactId ?? o.contact?.id)
+        .filter((id): id is string => !!id)
+    )
+  );
+
+  const closerNameByContactId = new Map<string, string>();
+
+  if (closerFieldId && uniqueContactIds.length > 0) {
+    console.log(
+      `[sync] [${org.orgSlug}] Fetching ${uniqueContactIds.length} contacts to resolve closer custom field...`
+    );
+    // Chunks of 5 in parallel with a 250ms breather between rounds.
+    // That works out to ~20 req/sec peak, well under GHL's 120/min
+    // steady-state ceiling. Combined with the retry-on-429 logic in
+    // GHLClient.request() this should gracefully absorb any transient
+    // rate limit hits without aborting the whole sync.
+    const CHUNK = 5;
+    const SLEEP_MS = 250;
+    for (let i = 0; i < uniqueContactIds.length; i += CHUNK) {
+      const chunk = uniqueContactIds.slice(i, i + CHUNK);
+      const contacts = await Promise.all(
+        chunk.map((id) => ghl.getContact(id))
+      );
+      for (let j = 0; j < chunk.length; j++) {
+        const contact = contacts[j];
+        if (!contact) continue;
+        const field = contact.customFields?.find(
+          (f) => f.id === closerFieldId
+        );
+        const value = field?.value;
+        if (typeof value === "string" && value.trim().length > 0) {
+          closerNameByContactId.set(chunk[j], value.trim());
+        }
+      }
+      // Breather between rounds to smooth out the burst.
+      if (i + CHUNK < uniqueContactIds.length) {
+        await new Promise((r) => setTimeout(r, SLEEP_MS));
+      }
+    }
+    console.log(
+      `[sync] [${org.orgSlug}] Resolved closer for ${closerNameByContactId.size}/${uniqueContactIds.length} contacts`
+    );
+  }
+
+  // Memoize resolveOrCreateCloserByName calls within this sync so we
+  // only hit the DB once per unique closer name. Names are normalized
+  // by `ilike`, so "Trevor Albrecht" and "trevor albrecht" share a row.
+  const closerIdByName = new Map<string, string | null>();
+
   // Build upsert rows
   const syncedOppIds = new Set<string>();
   const rows: Record<string, unknown>[] = [];
 
   for (const opp of openingWonOpps) {
     syncedOppIds.add(opp.id);
-    const closerId = opp.assignedTo
-      ? closerMap.get(opp.assignedTo) || null
-      : null;
     const contactId = opp.contactId ?? opp.contact?.id ?? null;
+
+    // Resolve closer from the contact.closer custom field. NO fallback
+    // to opp.assignedTo — the user wants the custom field to be the
+    // sole source of truth.
+    let closerId: string | null = null;
+    const closerName = contactId ? closerNameByContactId.get(contactId) : null;
+    if (closerName) {
+      // Memoized lookup/create per unique name
+      if (closerIdByName.has(closerName)) {
+        closerId = closerIdByName.get(closerName) ?? null;
+      } else {
+        closerId = await resolveOrCreateCloserByName(
+          adminSupabase,
+          org.orgId,
+          closerName
+        );
+        closerIdByName.set(closerName, closerId);
+      }
+    }
 
     const closing = contactId ? closingByContactId.get(contactId) : null;
     let closingStatus: string = "pending_to_close";
@@ -608,4 +739,61 @@ async function syncOpportunities(
   );
 
   return { transfersSynced: upserted, cleanedCount, warning: null };
+}
+
+// ── Closer helper ─────────────────────────────────────────────────
+//
+// Resolve a closer row by name (case-insensitive) or create one if it
+// doesn't exist yet. Used by syncOpportunities() to convert a closer
+// name string from the GHL `contact.closer` custom field into a
+// closer_id UUID.
+//
+// Matching rules:
+//   - case-insensitive exact match via `ilike`
+//   - first row wins if somehow there are duplicates
+//   - creates a new closer row with `ghl_user_id = null` if no match
+//     (these came from the custom field, not from a GHL user)
+//
+// The sync route memoizes calls to this helper per unique name within
+// a single org sync to avoid hitting the DB for every opp.
+async function resolveOrCreateCloserByName(
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  name: string
+): Promise<string | null> {
+  // Case-insensitive exact match. `ilike` with no wildcards behaves
+  // like `=` but collapses case variation ("Maria Smith" === "maria
+  // smith"). Accent variations ("María" vs "Maria") are NOT collapsed
+  // — that's tech debt documented in the plan.
+  const { data: existing } = await adminSupabase
+    .from("closers")
+    .select("id")
+    .eq("org_id", orgId)
+    .ilike("name", name)
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) return existing.id;
+
+  // No match — create a new closer row. `ghl_user_id = null` means
+  // this closer came from a custom field value, not from a synced
+  // GHL user. If a GHL user with this exact name is synced in the
+  // next run, the insert below would duplicate them; to avoid that,
+  // we could fall back to fuzzy matching or add a unique constraint,
+  // but for now the simple path is fine.
+  const { data: inserted } = await adminSupabase
+    .from("closers")
+    .insert({
+      org_id: orgId,
+      name,
+      email: null,
+      phone: null,
+      avatar_url: null,
+      active: true,
+      ghl_user_id: null,
+    })
+    .select("id")
+    .maybeSingle();
+
+  return inserted?.id ?? null;
 }

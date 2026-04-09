@@ -113,6 +113,31 @@ export interface GHLPipeline {
   stages: Array<{ id: string; name: string }>;
 }
 
+/**
+ * Custom field definition at the location level. Every contact,
+ * opportunity, or business custom field in GHL shows up in the
+ * `/custom-fields/` list response.
+ *
+ * `fieldKey` is the merge-tag identifier (e.g. `contact.closer`),
+ * always prefixed with the model name. `id` is the UUID the API
+ * uses when reading/writing values on a specific record — a contact
+ * payload has `customFields: [{ id, value }]` with NO fieldKey.
+ *
+ * See `docs/skills/ghl-api/references/custom-fields.md` for the full
+ * dataType enum and picklist semantics.
+ */
+export interface GHLCustomField {
+  id: string;
+  name: string;
+  fieldKey: string;
+  dataType: string;
+  model: "contact" | "opportunity" | "business" | string;
+  picklistOptions?: string[];
+  placeholder?: string;
+  position?: number;
+  locationId?: string;
+}
+
 export interface GHLPipelinesResponse {
   pipelines: GHLPipeline[];
 }

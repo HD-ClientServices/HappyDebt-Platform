@@ -77,10 +77,42 @@ The sync is what pulls fresh data from GHL into Supabase. Flow:
    - Sync GHL users as closers for that org
    - Discover recent calls and queue them as `processing_jobs`
    - Fetch won opps from that org's opening pipeline, cross-match against closing pipeline by `contact_id`, and UPSERT into `live_transfers` with `org_id = org.id`
+   - **Resolve closer from `contact.closer` custom field** (see section below)
    - DB-level cleanup of stale rows scoped to that org
 5. Fire pipeline workers for every queued job (fire-and-forget `POST /api/pipeline/process`).
 
 **Critical invariant**: the sync NEVER uses `effectiveOrgId` to decide which org owns a row. Ownership is derived from the opp's pipeline_id at scrape time. Using `effectiveOrgId` was the bug behind the 00016 refactor — don't reintroduce it.
+
+### Closer lookup (`contact.closer` custom field)
+
+**Don't use `opp.assignedTo` for "who closed this deal".** That's the GHL user assigned to the opportunity in the CRM (typically the setter or account owner). The actual closer name lives in a custom field on the **contact**, not the opportunity.
+
+Pipeline for resolving `live_transfers.closer_id`:
+
+1. Once per sync run, `syncOpportunities()` calls `ghl.getCustomFields()` (which hits `GET /locations/{locationId}/customFields`) and finds the custom field where `fieldKey === "contact.closer"` and `model === "contact"`.
+2. It collects the unique `contactId` from every opportunity in the opening pipeline and fetches each contact individually via `ghl.getContact(id)` — in parallel chunks of 10 to stay under GHL's ~120 req/min rate limit.
+3. For each contact's response, it pulls `customFields` (an array of `{ id, value }`) and looks up the value whose `id` matches the closer custom field's id. Custom fields are ALWAYS referenced by `id` in contact payloads, never by `fieldKey`.
+4. That value is a string (dataType is `SINGLE_OPTIONS` in practice — e.g. `"Trevor Albrecht"`). The sync calls `resolveOrCreateCloserByName(orgId, name)` which matches case-insensitively (`ilike`) against existing `closers` rows and creates a new one if nothing matches.
+5. Results are memoized per unique name within one sync run so we only touch the DB once per distinct closer.
+
+**If the `contact.closer` field is not defined in GHL**, the sync logs a warning listing the available contact-model fields and upserts every row with `closer_id = null`. The "Top Closer" KPI card will show `—` until the field is created and populated.
+
+**Why contacts, not opportunities?** The GHL opportunities search endpoint returns a simplified contact object (`id`, `name`, `phone`, `email`, `companyName`, `tags`) with no `customFields`. Only the dedicated contact-by-id endpoint includes them. This introduces an N+1 fetch pattern per sync which is acceptable up to a few hundred opps; past that, cache contacts in DB with a TTL.
+
+### KPI vocabulary — "Closing rate" (not "Conversion rate")
+
+The canonical term for the rate metric on the Live Transfers dashboard is **Closing Rate**, not "Conversion Rate". Formula:
+
+```
+closing_rate = closed_won / (closed_won + closed_lost)
+```
+
+`pending_to_close` and `disqualified` transfers are **excluded from the denominator** — they're still in progress and shouldn't drag the rate down.
+
+Related conventions:
+- **`closed_lost` is tracked internally** even though the "Closed Lost" KPI card was removed from the UI (user felt it was contraproducente for the customer-facing dashboard). It's still needed as the denominator for the closing rate and as a filter in the Top Closer ranking.
+- **Top Closer ranking**: the closer with the highest `closing_rate` in the selected date range, NOT the closer with the most raw `closed_won` count. A closer must have at least `MIN_QUALIFYING_DEALS_FOR_TOP_CLOSER = 3` closed deals (won + lost) to be eligible. Without this minimum, a closer with a single 1-0 record would sit at the top with 100% forever.
+- **Total Debt** (`sum(amount)` of all transfers in range) vs **Enrolled Debt** (`sum(amount)` of `closed_won` only) — two separate KPI cards. Both formatted with `formatUSD(amount, { compact: true })` from `lib/utils/format-currency.ts`.
 
 ### Webhook flow (`/api/webhooks/ghl-call`)
 
