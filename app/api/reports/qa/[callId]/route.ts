@@ -524,8 +524,6 @@ function renderAudioPlayer(callId: string): string {
   // Lucide SVG icons (24×24 viewBox, stroke-based)
   const ICON_PLAY = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>`;
   const ICON_PAUSE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"></rect><rect x="6" y="4" width="4" height="16" rx="1"></rect></svg>`;
-  const ICON_SKIP_BACK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 19 2 12 11 5 11 19"></polygon><polygon points="22 19 13 12 22 5 22 19"></polygon></svg>`;
-  const ICON_SKIP_FWD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 19 22 12 13 5 13 19"></polygon><polygon points="2 19 11 12 2 5 2 19"></polygon></svg>`;
   const ICON_VOLUME = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><path d="M16 9a5 5 0 0 1 0 6"></path><path d="M19.364 18.364a9 9 0 0 0 0-12.728"></path></svg>`;
   const ICON_VOLUME_X = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><line x1="22" y1="9" x2="16" y2="15"></line><line x1="16" y1="9" x2="22" y2="15"></line></svg>`;
 
@@ -539,11 +537,9 @@ function renderAudioPlayer(callId: string): string {
         <div id="ap-status" class="ap-status loading">Loading recording...</div>
 
         <div id="ap-ui" style="display:none;">
-          <!-- Controls: skip-back | play/pause | skip-forward -->
+          <!-- Play / pause -->
           <div class="ap-controls">
-            <button class="ap-btn" id="ap-skip-back" title="Back 15s">${ICON_SKIP_BACK}</button>
             <button class="ap-btn ap-play-btn" id="ap-play" title="Play">${ICON_PLAY}</button>
-            <button class="ap-btn" id="ap-skip-fwd" title="Forward 15s">${ICON_SKIP_FWD}</button>
           </div>
 
           <!-- Progress: current time | slider | duration -->
@@ -629,13 +625,7 @@ function renderAudioPlayer(callId: string): string {
         }
       });
 
-      document.getElementById('ap-skip-back').addEventListener('click', function() {
-        audio.currentTime = Math.max(0, audio.currentTime - 15);
-      });
 
-      document.getElementById('ap-skip-fwd').addEventListener('click', function() {
-        audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 15);
-      });
 
       seek.addEventListener('mousedown', function() { seek._dragging = true; });
       seek.addEventListener('touchstart', function() { seek._dragging = true; });
