@@ -47,7 +47,7 @@ export function ReconnectButton({ liveTransferId, disabled }: Props) {
     if (mutation.isPending) return;
     if (
       !window.confirm(
-        "Reconnect this lead? An automation will fire in your CRM."
+        "Reconnect this lead? A new request will be fired to the Intro Team"
       )
     )
       return;
