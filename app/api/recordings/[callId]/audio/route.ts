@@ -110,12 +110,49 @@ export async function GET(
     );
   }
 
-  // ── Return buffered audio ────────────────────────────────────
+  // ── Handle Range requests for seeking ─────────────────────────
+  //
+  // HTML5 `<audio>` elements only allow seeking if the server
+  // advertises `Accept-Ranges: bytes`. When the user drags the
+  // slider, the browser sends a `Range: bytes=N-` header and
+  // expects a 206 Partial Content response. Without this, seeking
+  // is silently disabled on unbuffered portions of the audio.
+  //
+  // We already have the full buffer from GHL, so we just slice it.
+  // After the first full request, the browser caches the response
+  // (Cache-Control: private, max-age=3600) and synthesizes Range
+  // responses from cache — no extra GHL downloads for seeks.
+  const totalBytes = audioBuffer.byteLength;
+  const rangeHeader = _request.headers.get("range");
+
+  if (rangeHeader) {
+    const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+    if (match) {
+      const start = parseInt(match[1]);
+      const end = match[2] ? parseInt(match[2]) : totalBytes - 1;
+      const clampedEnd = Math.min(end, totalBytes - 1);
+      const chunk = audioBuffer.slice(start, clampedEnd + 1);
+
+      return new NextResponse(chunk, {
+        status: 206,
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Content-Range": `bytes ${start}-${clampedEnd}/${totalBytes}`,
+          "Content-Length": String(chunk.byteLength),
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "private, max-age=3600, immutable",
+        },
+      });
+    }
+  }
+
+  // ── Full response (initial load) ─────────────────────────────
   return new NextResponse(audioBuffer, {
     status: 200,
     headers: {
       "Content-Type": "audio/mpeg",
-      "Content-Length": String(audioBuffer.byteLength),
+      "Content-Length": String(totalBytes),
+      "Accept-Ranges": "bytes",
       "Cache-Control": "private, max-age=3600, immutable",
       "Content-Disposition": "inline",
     },

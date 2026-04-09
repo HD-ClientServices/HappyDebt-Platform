@@ -205,7 +205,7 @@ export function LeadDetailModal({ leadId, onClose }: LeadDetailModalProps) {
                           </div>
 
                           {call.recording_url && (
-                            <CallAudioPlayer src={call.recording_url} />
+                            <CallAudioPlayer recordingUrl={call.recording_url} callId={call.id} />
                           )}
 
                           {call.strengths && call.strengths.length > 0 && (
