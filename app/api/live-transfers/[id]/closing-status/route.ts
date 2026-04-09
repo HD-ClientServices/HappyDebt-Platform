@@ -156,12 +156,18 @@ export async function POST(
     // 6. GHL accepted — update the local row. If this fails the DB and
     // GHL will drift until the next sync re-derives closing_status, but
     // that's self-healing within the next sync cycle.
-    const nowIso = new Date().toISOString();
+    //
+    // IMPORTANT: we intentionally do NOT update `status_change_date`
+    // here. That column records when the opportunity moved to "Won" in
+    // the GHL opening pipeline (the date of the live transfer event
+    // itself) and is set exclusively during sync from
+    // `opp.lastStatusChangeAt`. Changing it on a closing_status edit
+    // would make the lead jump to today's date in the table, breaking
+    // the chronological order and confusing users.
     const { error: updateErr } = await admin
       .from("live_transfers")
       .update({
         closing_status: newStatus,
-        status_change_date: nowIso,
       })
       .eq("id", liveTransferId);
 
